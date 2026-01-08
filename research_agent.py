@@ -6,7 +6,7 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from typing import TypedDict, Annotated
 import operator
 import datetime
@@ -83,7 +83,7 @@ class ResearchState(TypedDict):
 @tool
 def web_search(query: str) -> str:
     """Search the web for information related to the query."""
-    search = TavilySearchResults(max_results=5)
+    search = TavilySearch(max_results=5)
     results = search.invoke({"query": query})
     return str(results)
 

@@ -200,6 +200,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "langchain-community" },
     { name = "langchain-openai" },
+    { name = "langchain-tavily" },
     { name = "langgraph" },
     { name = "python-dotenv" },
     { name = "tavily-python" },
@@ -209,6 +210,7 @@ dependencies = [
 requires-dist = [
     { name = "langchain-community", specifier = ">=0.4.1" },
     { name = "langchain-openai", specifier = ">=1.1.6" },
+    { name = "langchain-tavily", specifier = ">=0.1.5" },
     { name = "langgraph", specifier = ">=1.0.5" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "tavily-python", specifier = ">=0.7.17" },
@@ -452,6 +454,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "langgraph" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/f0/9b4a23b59fbf2c61d8590bb58ef1c7428132602cdceef0430dd82706b2e9/langchain-1.2.2.tar.gz", hash = "sha256:3f49321cfbf821b3f541aa8a504c35b48ef5e9518a948efa8eeb20cb16eb95a8", size = 546512, upload-time = "2026-01-07T22:53:54.861Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/75/51/671b998b8b828603d7c3af854295a73f08731ff06e15dd94cdb68db5ee82/langchain-1.2.2-py3-none-any.whl", hash = "sha256:1aed3d6a3d7180d0db9b8789f38ea1c4f8c883248e86501ed580e7f5c3ca939f", size = 105837, upload-time = "2026-01-07T22:53:53.944Z" },
+]
+
+[[package]]
 name = "langchain-classic"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -523,6 +539,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ae/67/228dc28b4498ea16422577013b5bb4ba35a1b99f8be975d6747c7a9f7e6a/langchain_openai-1.1.6.tar.gz", hash = "sha256:e306612654330ae36fb6bbe36db91c98534312afade19e140c3061fe4208dac8", size = 1038310, upload-time = "2025-12-18T17:58:52.84Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/db/5b/1f6521df83c1a8e8d3f52351883b59683e179c0aa1bec75d0a77a394c9e7/langchain_openai-1.1.6-py3-none-any.whl", hash = "sha256:c42d04a67a85cee1d994afe400800d2b09ebf714721345f0b651eb06a02c3948", size = 84701, upload-time = "2025-12-18T17:58:51.527Z" },
+]
+
+[[package]]
+name = "langchain-tavily"
+version = "0.2.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/57/06/b3fa1e9ace328cb628128198132455dcc672fa0bbd9b2cc142925101e269/langchain_tavily-0.2.16.tar.gz", hash = "sha256:25d11ebc0ed270c88ff5007276ba2fb74215e125062b7d5e3733faa014f99b78", size = 25282, upload-time = "2025-12-29T22:34:19.176Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/05/ea818ce483daf6973e0aabf8e2d9ea38d7b162a48e47a6ef86aa395cf8a9/langchain_tavily-0.2.16-py3-none-any.whl", hash = "sha256:3cae3551d690069fe204ef719e53bb8353cb12e7449b16e8a7588a16e1a6304e", size = 30715, upload-time = "2025-12-29T22:34:18.005Z" },
 ]
 
 [[package]]
