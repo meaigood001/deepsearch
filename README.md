@@ -31,11 +31,22 @@
 
 设置环境变量：
 
-- `OPENAI_API_KEY`: OpenAI API密钥（必需）
+- `OPENAI_API_KEY`: Minimax AI API密钥（必需）
 - `TAVILY_API_KEY`: Tavily搜索API密钥（必需）
-- `OPENAI_BASE_URL`: OpenAI兼容API的base URL（可选，默认使用OpenAI）
+- `OPENAI_BASE_URL`: Minimax AI API的base URL（必需）
+  - 设置为 `https://api.minimax.chat/v1` 用于Minimax AI模型
+  - 如果使用其他OpenAI兼容的API，请设置相应的base URL
+- `MODEL_NAME`: 模型名称（可选，默认为 `minimaxai/minimax-m2.1`）
+  - 可以指定其他OpenAI兼容的模型，如 `gpt-4`、`gpt-3.5-turbo` 等
 
-可通过`.env`文件或直接设置环境变量。
+可通过`.env`文件或直接设置环境变量。示例`.env`文件：
+
+```env
+OPENAI_API_KEY=your_minimax_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
+OPENAI_BASE_URL=https://api.minimax.chat/v1
+MODEL_NAME=minimaxai/minimax-m2.1
+```
 
 ## 运行
 

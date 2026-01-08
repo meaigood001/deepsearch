@@ -78,9 +78,10 @@ uv run python research_agent.py
 ### Environment Setup
 ```bash
 # Ensure .env file exists with required keys:
-# OPENAI_API_KEY=your_key
-# TAVILY_API_KEY=your_key
-# OPENAI_BASE_URL=optional_custom_url
+# OPENAI_API_KEY=your_minimax_api_key
+# TAVILY_API_KEY=your_tavily_api_key
+# OPENAI_BASE_URL=https://api.minimax.chat/v1
+# MODEL_NAME=minimaxai/minimax-m2.1
 ```
 
 ## Code Style Guidelines
@@ -120,7 +121,7 @@ class ResearchState(TypedDict):
     pass
 
 # Constants: UPPER_SNAKE_CASE
-DEFAULT_MODEL = "gpt-4"
+DEFAULT_MODEL = "minimaxai/minimax-m2.1"
 
 # Private members: leading underscore
 def _private_function():
@@ -238,7 +239,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     openai_api_key: str
     tavily_api_key: str
-    openai_base_url: str = "https://api.openai.com/v1"
+    openai_base_url: str = "https://api.minimax.chat/v1"
     
     class Config:
         env_file = ".env"
