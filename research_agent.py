@@ -13,6 +13,8 @@ import datetime
 import logging
 import json
 import re
+import argparse
+from pathlib import Path
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -74,6 +76,7 @@ class ResearchState(TypedDict):
     iteration: int
     max_iterations: int
     keyword_history: list
+    lang: str
 
 
 # Define tools
@@ -141,7 +144,9 @@ def generate_keywords_node(state: ResearchState):
     logger.debug(f"Background context length: {len(str(background))} characters")
     logger.debug(f"Keyword history: {keyword_history}")
 
-    time_instruction = get_time_awareness_instruction(state["current_time"])
+    time_instruction = get_time_awareness_instruction(
+        state["current_time"], state["lang"]
+    )
 
     prompt = ChatPromptTemplate.from_template(
         f"{time_instruction}\n"
@@ -235,7 +240,7 @@ def multi_search_node(state: ResearchState):
         logger.debug(f"Search results for '{kw}': {len(str(result))} characters")
 
         prompt = ChatPromptTemplate.from_template(
-            f"{get_time_awareness_instruction(state['current_time'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: The paragraph must help answer the user's original research question. Focus on information relevant to their specific inquiry.\nSummarize the following search results for keyword '{{kw}}': {{result}}"
+            f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: The paragraph must help answer the user's original research question. Focus on information relevant to their specific inquiry.\nSummarize the following search results for keyword '{{kw}}': {{result}}"
         )
         chain = prompt | llm | StrOutputParser()
 
@@ -258,7 +263,7 @@ def check_gaps_node(state: ResearchState):
     logger.debug(f"Original query context: {original_query}")
 
     prompt = ChatPromptTemplate.from_template(
-        f"{get_time_awareness_instruction(state['current_time'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Reflect on whether the current paragraphs sufficiently address the user's original research question. Identify deficiencies, especially in answering the query.\nReview these summaries: {{summaries}}\nAgainst the query: {{query}}\nAre there gaps? Answer 'yes' or 'no'."
+        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Reflect on whether the current paragraphs sufficiently address the user's original research question. Identify deficiencies, especially in answering the query.\nReview these summaries: {{summaries}}\nAgainst the query: {{query}}\nAre there gaps? Answer 'yes' or 'no'."
     )
     chain = prompt | llm | StrOutputParser()
 
@@ -286,7 +291,7 @@ def synthesize_node(state: ResearchState):
     )
 
     prompt = ChatPromptTemplate.from_template(
-        f"{get_time_awareness_instruction(state['current_time'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure the final report comprehensively answers the user's original research question. Conclude by summarizing how the report addresses their specific inquiry.\nSynthesize these summaries into a comprehensive report for the query: {{query}}\nSummaries: {{summaries}}"
+        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure the final report comprehensively answers the user's original research question. Conclude by summarizing how the report addresses their specific inquiry.\nSynthesize these summaries into a comprehensive report for the query: {{query}}\nSummaries: {{summaries}}"
     )
     chain = prompt | llm | StrOutputParser()
 
@@ -337,7 +342,7 @@ graph = builder.compile()
 
 
 # Function to run the agent
-def run_research_agent(query: str):
+def run_research_agent(query: str, max_iterations: int = 3, lang: str = "en"):
     logger.info("=" * 50)
     logger.info(f"RESEARCH AGENT STARTED")
     logger.info(f"Query: {query}")
@@ -357,8 +362,9 @@ def run_research_agent(query: str):
         "final_report": "",
         "current_time": current_time,
         "iteration": 0,
-        "max_iterations": 3,
+        "max_iterations": max_iterations,
         "keyword_history": [],
+        "lang": lang,
     }
 
     logger.debug("Initial state prepared, starting graph execution")
@@ -373,8 +379,156 @@ def run_research_agent(query: str):
 
 
 if __name__ == "__main__":
-    query = "What are the latest developments in AI safety?"
-    logger.info(f"Running research agent with query: {query}")
-    report = run_research_agent(query)
+    parser = argparse.ArgumentParser(
+        prog="deepsearch",
+        description="Deep Research Agent - AI-powered multi-iteration research tool",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="Example: %(prog)s 'What are the latest developments in AI safety?' -o report.md",
+    )
+
+    # Positional argument (required)
+    parser.add_argument(
+        "query",
+        type=str,
+        help="Research question to investigate",
+    )
+
+    # Output options
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=None,
+        help="Output file path (auto-generated if not specified)",
+    )
+
+    parser.add_argument(
+        "--format",
+        "-f",
+        type=str,
+        default="markdown",
+        choices=["markdown", "txt", "json"],
+        help="Output format",
+    )
+
+    # Research options
+    parser.add_argument(
+        "--max-iterations",
+        "-i",
+        type=int,
+        default=3,
+        help="Maximum number of research iterations",
+    )
+
+    parser.add_argument(
+        "--lang",
+        type=str,
+        default="en",
+        choices=["en", "zh"],
+        help="Language for time-aware prompts (en/zh)",
+    )
+
+    # Logging options
+    log_group = parser.add_mutually_exclusive_group()
+    log_group.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable verbose logging (DEBUG level)",
+    )
+
+    log_group.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Enable quiet mode (WARNING level)",
+    )
+
+    args = parser.parse_args()
+
+    # Validate query
+    if len(args.query) < 3:
+        parser.error("Query must be at least 3 characters long")
+
+    if len(args.query) > 1000:
+        parser.error("Query too long (max 1000 characters)")
+
+    # Validate required environment variables
+    required_vars = ["OPENAI_API_KEY", "TAVILY_API_KEY"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        parser.error(
+            f"Missing required environment variables: {', '.join(missing_vars)}\n"
+            "Please set them in your .env file or environment.\n"
+            "See .env.example for required variables."
+        )
+
+    # Set log level
+    if args.verbose:
+        log_level = "DEBUG"
+    elif args.quiet:
+        log_level = "WARNING"
+    else:
+        log_level = "INFO"
+
+    logging.getLogger().setLevel(getattr(logging, log_level))
+    logger.info(f"Log level set to: {log_level}")
+
+    # Generate output filename if not provided
+    output_file = args.output
+    if not output_file:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_query = re.sub(r"[^\w\s-]", "", args.query)[:30].strip()
+        safe_query = re.sub(r"\s+", "_", safe_query)
+        ext = "md" if args.format == "markdown" else args.format.lower()
+        output_file = f"output/{safe_query}_{timestamp}.{ext}"
+
+    # Ensure output directory exists
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Output directory ensured: {output_path.parent}")
+
+    # Run research agent
+    logger.info(f"Running research agent with query: {args.query}")
+    logger.info(f"Max iterations: {args.max_iterations}")
+    logger.info(f"Output file: {output_file}")
+
+    try:
+        report = run_research_agent(
+            args.query, max_iterations=args.max_iterations, lang=args.lang
+        )
+    except Exception as e:
+        logger.error(f"Research agent failed: {e}", exc_info=True)
+        # Save partial results if output file specified
+        if args.output:
+            import traceback
+
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(f"# Research Failed\n\nError: {e}\n\n{traceback.format_exc()}")
+        raise
+
+    # Write output file
+    try:
+        with open(output_file, "w", encoding="utf-8") as f:
+            if args.format == "json":
+                json.dump(
+                    {
+                        "query": args.query,
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "report": report,
+                    },
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            else:
+                f.write(report)
+
+        logger.info(f"✅ Report saved to: {output_file}")
+    except IOError as e:
+        logger.error(f"❌ Failed to write output file: {e}")
+        raise
+
+    # Also print to console for immediate feedback
     print(report)
     logger.info("Research agent execution finished")
