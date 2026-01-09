@@ -80,6 +80,8 @@ class ResearchState(TypedDict):
     max_iterations: int
     keyword_history: list
     lang: str
+    llm_outputs: dict
+    html_report: str
 
 
 # Define tools
@@ -140,9 +142,13 @@ def background_search_node(state: ResearchState):
     logger.info(f"Background summary generated: {len(background)} characters")
     logger.debug(f"Background summary output: {background}")
 
+    llm_outputs = state.get("llm_outputs", {})
+    llm_outputs["background_search"] = background
+
     return {
         "background": background,
         "confirmed": True,
+        "llm_outputs": llm_outputs,
     }
 
 
@@ -234,10 +240,17 @@ def generate_keywords_node(state: ResearchState):
     logger.info(f"Updated keyword history: {new_keyword_history}")
     logger.info(f"Iteration counter updated: {new_iteration}/{max_iterations}")
 
+    llm_outputs = state.get("llm_outputs", {})
+    llm_outputs[f"generate_keywords_iteration_{iteration}"] = {
+        "raw_output": llm_output,
+        "parsed_keywords": keywords,
+    }
+
     return {
         "keywords": keywords,
         "iteration": new_iteration,
         "keyword_history": new_keyword_history,
+        "llm_outputs": llm_outputs,
     }
 
 
@@ -249,6 +262,7 @@ def multi_search_node(state: ResearchState):
 
     logger.info(f"Starting multi-search for {len(keywords)} keywords: {keywords}")
 
+    multi_search_outputs = []
     for idx, kw in enumerate(keywords, 1):
         logger.info(f"Processing keyword {idx}/{len(keywords)}: {kw}")
 
@@ -267,9 +281,16 @@ def multi_search_node(state: ResearchState):
         logger.info(f"Generated summary for '{kw}': {len(summary)} characters")
         logger.debug(f"Summary output for '{kw}': {summary}")
         summaries.append(summary)
+        multi_search_outputs.append({"keyword": kw, "summary": summary})
 
     logger.info(f"Multi-search completed. Generated {len(summaries)} summaries")
-    return {"summaries": summaries}
+
+    llm_outputs = state.get("llm_outputs", {})
+    llm_outputs[f"multi_search_iteration_{state['iteration'] - 1}"] = (
+        multi_search_outputs
+    )
+
+    return {"summaries": summaries, "llm_outputs": llm_outputs}
 
 
 def check_gaps_node(state: ResearchState):
@@ -293,7 +314,13 @@ def check_gaps_node(state: ResearchState):
     gaps_found = "yes" in gaps.lower()
     logger.info(f"Gap analysis complete. Gaps found: {gaps_found}")
 
-    return {"gaps_found": gaps_found}
+    llm_outputs = state.get("llm_outputs", {})
+    llm_outputs[f"check_gaps_iteration_{state['iteration'] - 1}"] = {
+        "raw_output": gaps,
+        "gaps_found": gaps_found,
+    }
+
+    return {"gaps_found": gaps_found, "llm_outputs": llm_outputs}
 
 
 def synthesize_node(state: ResearchState):
@@ -319,7 +346,707 @@ def synthesize_node(state: ResearchState):
     logger.info(f"Final report generated: {len(report)} characters")
     logger.debug(f"Final report output: {report}")
 
-    return {"final_report": report}
+    llm_outputs = state.get("llm_outputs", {})
+    llm_outputs["synthesize"] = report
+
+    return {"final_report": report, "llm_outputs": llm_outputs}
+
+
+def generate_html_node(state: ResearchState):
+    logger.info("=== GENERATE HTML NODE STARTED ===")
+
+    original_query = state["original_query"]
+    current_time = state["current_time"]
+    llm_outputs = state.get("llm_outputs", {})
+
+    logger.info("Generating HTML report")
+
+    def escape_js_string(text):
+        if not text:
+            return ""
+        text = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+        return text
+
+    content_data = {}
+
+    if "background_search" in llm_outputs:
+        content_data["background"] = escape_js_string(llm_outputs["background_search"])
+
+    iterations = set()
+    for key in llm_outputs.keys():
+        if key.startswith("generate_keywords_iteration_"):
+            iteration = key.split("_")[-1]
+            iterations.add(iteration)
+            if "keywords" not in content_data:
+                content_data["keywords"] = {}
+            if iteration not in content_data["keywords"]:
+                content_data["keywords"][iteration] = {"keywords": []}
+            for k, v in llm_outputs.items():
+                if k == f"generate_keywords_iteration_{iteration}":
+                    content_data["keywords"][iteration]["keywords"] = v.get(
+                        "parsed_keywords", []
+                    )
+
+    for key, value in llm_outputs.items():
+        if key.startswith("multi_search_iteration_"):
+            iteration = key.split("_")[-1]
+            if "summaries" not in content_data:
+                content_data["summaries"] = {}
+            content_data["summaries"][iteration] = [
+                {
+                    "keyword": item["keyword"],
+                    "summary": escape_js_string(item["summary"]),
+                }
+                for item in value
+            ]
+
+    for key, value in llm_outputs.items():
+        if key.startswith("check_gaps_iteration_"):
+            iteration = key.split("_")[-1]
+            if "gaps" not in content_data:
+                content_data["gaps"] = {}
+            content_data["gaps"][iteration] = {
+                "gaps_found": value.get("gaps_found", False),
+                "raw_output": escape_js_string(value.get("raw_output", "")),
+            }
+
+    if "synthesize" in llm_outputs:
+        content_data["final"] = escape_js_string(llm_outputs["synthesize"])
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Report: {original_query}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {{
+            --primary-gradient: linear-gradient(135deg, #5B21B6 0%, #7C3AED 50%, #A855F7 100%);
+            --secondary-gradient: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+            --accent-purple: #7C3AED;
+            --accent-violet: #8B5CF6;
+            --accent-pink: #EC4899;
+            --text-primary: #1F2937;
+            --text-secondary: #6B7280;
+            --text-light: #9CA3AF;
+            --bg-primary: #FFFFFF;
+            --bg-secondary: #F9FAFB;
+            --bg-tertiary: #F3F4F6;
+            --border-color: #E5E7EB;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }}
+
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.75;
+            color: var(--text-primary);
+            background: linear-gradient(135deg, #5B21B6 0%, #7C3AED 25%, #8B5CF6 50%, #A855F7 75%, #EC4899 100%);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+            min-height: 100vh;
+            padding: 20px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+
+        @keyframes gradientShift {{
+            0% {{ background-position: 0% 50%; }}
+            50% {{ background-position: 100% 50%; }}
+            100% {{ background-position: 0% 50%; }}
+        }}
+
+        .container {{
+            max-width: 1200px;
+            margin: 20px auto;
+            background: var(--bg-primary);
+            border-radius: 20px;
+            box-shadow: var(--shadow-2xl);
+            overflow: hidden;
+            animation: fadeInUp 0.6s ease-out;
+        }}
+
+        @keyframes fadeInUp {{
+            from {{
+                opacity: 0;
+                transform: translateY(20px);
+            }}
+            to {{
+                opacity: 1;
+                transform: translateY(0);
+            }}
+        }}
+
+        .header {{
+            background: var(--primary-gradient);
+            color: white;
+            padding: 60px 40px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }}
+
+        .header::before {{
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+            background-size: 40px 40px;
+            animation: patternMove 60s linear infinite;
+        }}
+
+        @keyframes patternMove {{
+            0% {{ transform: translate(0, 0); }}
+            100% {{ transform: translate(40px, 40px); }}
+        }}
+
+        .header h1 {{
+            font-family: 'Playfair Display', Georgia, serif;
+            font-size: 3.5em;
+            font-weight: 700;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.2);
+            position: relative;
+            letter-spacing: -0.02em;
+        }}
+
+        .header .meta {{
+            font-size: 1em;
+            opacity: 0.95;
+            line-height: 1.8;
+            font-weight: 400;
+            position: relative;
+        }}
+
+        .header .meta p {{
+            margin: 8px 0;
+        }}
+
+        .header .meta strong {{
+            font-weight: 600;
+            opacity: 1;
+        }}
+
+        .content {{
+            padding: 50px;
+            background: var(--bg-secondary);
+        }}
+
+        .section {{
+            margin-bottom: 45px;
+            background: var(--bg-primary);
+            padding: 35px;
+            border-radius: 16px;
+            border-left: 5px solid var(--accent-purple);
+            box-shadow: var(--shadow-md);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }}
+
+        .section:hover {{
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }}
+
+        .section::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, rgba(124, 58, 237, 0.05) 0%, transparent 70%);
+            pointer-events: none;
+        }}
+
+        .section h2 {{
+            color: var(--accent-purple);
+            margin-bottom: 25px;
+            font-size: 2em;
+            font-weight: 700;
+            border-bottom: 3px solid var(--border-color);
+            padding-bottom: 15px;
+            font-family: 'Playfair Display', Georgia, serif;
+            position: relative;
+        }}
+
+        .section h2::after {{
+            content: '';
+            position: absolute;
+            bottom: -3px;
+            left: 0;
+            width: 60px;
+            height: 3px;
+            background: var(--secondary-gradient);
+            border-radius: 3px;
+        }}
+
+        .section h3 {{
+            color: var(--accent-violet);
+            margin-top: 25px;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            font-weight: 600;
+        }}
+
+        .section p {{
+            margin-bottom: 20px;
+            line-height: 1.85;
+            color: var(--text-primary);
+        }}
+
+        .keywords {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin: 20px 0;
+        }}
+
+        .keyword-tag {{
+            background: var(--secondary-gradient);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.95em;
+            font-weight: 500;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }}
+
+        .keyword-tag:hover {{
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: var(--shadow-md);
+        }}
+
+        .keyword-tag::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s ease;
+        }}
+
+        .keyword-tag:hover::before {{
+            left: 100%;
+        }}
+
+        .iteration-badge {{
+            display: inline-block;
+            background: var(--accent-violet);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow-sm);
+            letter-spacing: 0.5px;
+        }}
+
+        .final-report {{
+            background: var(--primary-gradient);
+            color: white;
+            border-left: none;
+            position: relative;
+        }}
+
+        .final-report::before {{
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+        }}
+
+        .final-report h2 {{
+            color: white;
+            border-bottom: 3px solid rgba(255,255,255,0.25);
+            font-family: 'Playfair Display', Georgia, serif;
+        }}
+
+        .final-report h2::after {{
+            background: linear-gradient(90deg, #fff, rgba(255,255,255,0.5));
+        }}
+
+        .final-report .markdown-content {{
+            color: rgba(255,255,255,0.95);
+        }}
+
+        .final-report .markdown-content strong {{
+            color: rgba(255,255,255,1);
+            font-weight: 700;
+        }}
+
+        .footer {{
+            text-align: center;
+            padding: 30px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-size: 0.95em;
+            font-weight: 400;
+            border-top: 1px solid var(--border-color);
+        }}
+
+        .footer p {{
+            margin: 5px 0;
+        }}
+
+        .markdown-content {{
+            animation: fadeIn 0.5s ease-in;
+        }}
+
+        @keyframes fadeIn {{
+            from {{ opacity: 0; }}
+            to {{ opacity: 1; }}
+        }}
+
+        .markdown-content h1 {{
+            color: var(--accent-purple);
+            margin: 35px 0 25px;
+            font-size: 2.25em;
+            border-bottom: 3px solid var(--border-color);
+            padding-bottom: 15px;
+            font-family: 'Playfair Display', Georgia, serif;
+            font-weight: 700;
+        }}
+
+        .markdown-content h2 {{
+            color: var(--accent-violet);
+            margin: 30px 0 20px;
+            font-size: 1.75em;
+            font-weight: 600;
+        }}
+
+        .markdown-content h3 {{
+            color: var(--accent-purple);
+            margin: 25px 0 15px;
+            font-size: 1.4em;
+            font-weight: 600;
+        }}
+
+        .markdown-content p {{
+            margin-bottom: 20px;
+            line-height: 1.85;
+            color: var(--text-primary);
+        }}
+
+        .markdown-content ul, .markdown-content ol {{
+            margin-left: 25px;
+            margin-bottom: 20px;
+        }}
+
+        .markdown-content li {{
+            margin-bottom: 10px;
+            line-height: 1.75;
+        }}
+
+        .markdown-content strong {{
+            color: var(--accent-purple);
+            font-weight: 700;
+        }}
+
+        .markdown-content em {{
+            color: var(--accent-violet);
+            font-style: italic;
+        }}
+
+        .markdown-content code {{
+            background: var(--bg-tertiary);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 0.9em;
+            color: var(--accent-purple);
+            font-weight: 500;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+        }}
+
+        .markdown-content pre {{
+            background: #1F2937;
+            color: #F9FAFB;
+            padding: 20px;
+            border-radius: 12px;
+            overflow-x: auto;
+            margin: 20px 0;
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(255,255,255,0.1);
+        }}
+
+        .markdown-content pre code {{
+            background: transparent;
+            padding: 0;
+            color: inherit;
+            font-size: 0.95em;
+        }}
+
+        .markdown-content blockquote {{
+            border-left: 4px solid var(--accent-purple);
+            padding: 20px 25px;
+            margin: 25px 0;
+            color: var(--text-secondary);
+            font-style: italic;
+            background: linear-gradient(90deg, rgba(124, 58, 237, 0.05), transparent);
+            border-radius: 0 8px 8px 0;
+        }}
+
+        .markdown-content a {{
+            color: var(--accent-purple);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s ease;
+            position: relative;
+        }}
+
+        .markdown-content a:hover {{
+            color: var(--accent-violet);
+            text-decoration: underline;
+        }}
+
+        .markdown-content table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            box-shadow: var(--shadow-sm);
+            border-radius: 8px;
+            overflow: hidden;
+        }}
+
+        .markdown-content th {{
+            background: var(--primary-gradient);
+            color: white;
+            padding: 15px;
+            font-weight: 600;
+            text-align: left;
+        }}
+
+        .markdown-content td {{
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-primary);
+        }}
+
+        .markdown-content tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        .markdown-content tr:nth-child(even) td {{
+            background: var(--bg-secondary);
+        }}
+
+        .markdown-content tr:hover td {{
+            background: var(--bg-tertiary);
+        }}
+
+        @media (max-width: 768px) {{
+            body {{
+                padding: 10px;
+            }}
+
+            .container {{
+                margin: 10px auto;
+                border-radius: 16px;
+            }}
+
+            .header {{
+                padding: 40px 20px;
+            }}
+
+            .header h1 {{
+                font-size: 2.2em;
+            }}
+
+            .header .meta {{
+                font-size: 0.9em;
+            }}
+
+            .content {{
+                padding: 30px 20px;
+            }}
+
+            .section {{
+                padding: 25px;
+                margin-bottom: 30px;
+            }}
+
+            .section h2 {{
+                font-size: 1.6em;
+            }}
+
+            .section h3 {{
+                font-size: 1.3em;
+            }}
+
+            .markdown-content h1 {{
+                font-size: 1.8em;
+            }}
+
+            .markdown-content h2 {{
+                font-size: 1.5em;
+            }}
+
+            .markdown-content h3 {{
+                font-size: 1.3em;
+            }}
+
+            .keywords {{
+                gap: 8px;
+            }}
+
+            .keyword-tag {{
+                padding: 8px 14px;
+                font-size: 0.85em;
+            }}
+        }}
+
+        @media (max-width: 480px) {{
+            .header h1 {{
+                font-size: 1.8em;
+            }}
+
+            .section {{
+                padding: 20px;
+            }}
+
+            .section h2 {{
+                font-size: 1.4em;
+            }}
+
+            .markdown-content h1 {{
+                font-size: 1.5em;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Research Report</h1>
+            <div class="meta">
+                <p><strong>Query:</strong> {original_query}</p>
+                <p><strong>Generated:</strong> {current_time}</p>
+            </div>
+        </div>
+        <div class="content" id="content">
+            <p style="text-align: center; color: #999;">Loading report...</p>
+        </div>
+        <div class="footer">
+            <p>Generated by Deep Research Agent | Powered by AI</p>
+        </div>
+    </div>
+
+    <script>
+        const contentData = {json.dumps(content_data)};
+
+        function renderMarkdown() {{
+            const contentEl = document.getElementById('content');
+            contentEl.innerHTML = '';
+
+            if (contentData.background) {{
+                const section = document.createElement('div');
+                section.className = 'section';
+                section.innerHTML = `
+                    <h2>🔍 Background Research</h2>
+                    <div class="markdown-content">${{marked.parse(contentData.background)}}</div>
+                `;
+                contentEl.appendChild(section);
+            }}
+
+            const sortedIterations = Array.from(new Set([
+                ...Object.keys(contentData.keywords || {{}}),
+                ...Object.keys(contentData.summaries || {{}}),
+                ...Object.keys(contentData.gaps || {{}})
+            ])).sort((a, b) => parseInt(a) - parseInt(b));
+
+            sortedIterations.forEach(iteration => {{
+                if (contentData.keywords && contentData.keywords[iteration]) {{
+                    const section = document.createElement('div');
+                    section.className = 'section';
+                    const keywords = contentData.keywords[iteration].keywords.map(kw =>
+                        `<span class="keyword-tag">${{kw}}</span>`
+                    ).join('');
+                    section.innerHTML = `
+                        <span class="iteration-badge">Iteration ${{iteration}}</span>
+                        <h2>🎯 Generated Keywords</h2>
+                        <div class="keywords">${{keywords}}</div>
+                    `;
+                    contentEl.appendChild(section);
+                }}
+            }});
+
+            sortedIterations.forEach(iteration => {{
+                if (contentData.summaries && contentData.summaries[iteration]) {{
+                    const section = document.createElement('div');
+                    section.className = 'section';
+                    const summaries = contentData.summaries[iteration].map(item =>
+                        `<h3>Keyword: ${{item.keyword}}</h3>
+                         <div class="markdown-content">${{marked.parse(item.summary)}}</div>`
+                    ).join('');
+                    section.innerHTML = `
+                        <span class="iteration-badge">Iteration ${{iteration}}</span>
+                        <h2>📋 Search Summaries</h2>
+                        ${{summaries}}
+                    `;
+                    contentEl.appendChild(section);
+                }}
+            }});
+
+            sortedIterations.forEach(iteration => {{
+                if (contentData.gaps && contentData.gaps[iteration]) {{
+                    const gap = contentData.gaps[iteration];
+                    const status = gap.gaps_found ? '⚠️ Gaps detected' : '✅ No gaps found';
+                    const section = document.createElement('div');
+                    section.className = 'section';
+                    section.innerHTML = `
+                        <span class="iteration-badge">Iteration ${{iteration}}</span>
+                        <h2>🔎 Gap Analysis</h2>
+                        <p><strong>Status:</strong> ${{status}}</p>
+                        <div class="markdown-content">${{marked.parse(gap.raw_output)}}</div>
+                    `;
+                    contentEl.appendChild(section);
+                }}
+            }});
+
+            if (contentData.final) {{
+                const section = document.createElement('div');
+                section.className = 'section final-report';
+                section.innerHTML = `
+                    <h2>📝 Final Report</h2>
+                    <div class="markdown-content">${{marked.parse(contentData.final)}}</div>
+                `;
+                contentEl.appendChild(section);
+            }}
+
+            document.querySelectorAll('pre code').forEach((block) => {{
+                hljs.highlightElement(block);
+            }});
+        }}
+
+        document.addEventListener('DOMContentLoaded', renderMarkdown);
+    </script>
+</body>
+</html>"""
+
+    logger.info("HTML report generated successfully")
+    return {"html_report": html_content}
 
 
 # Build the graph
@@ -329,6 +1056,7 @@ builder.add_node("generate_keywords", generate_keywords_node)
 builder.add_node("multi_search", multi_search_node)
 builder.add_node("check_gaps", check_gaps_node)
 builder.add_node("synthesize", synthesize_node)
+builder.add_node("generate_html", generate_html_node)
 
 builder.add_edge(START, "background_search")
 builder.add_edge("background_search", "generate_keywords")
@@ -356,7 +1084,8 @@ def route_after_check(state: ResearchState):
 
 
 builder.add_conditional_edges("check_gaps", route_after_check)
-builder.add_edge("synthesize", END)
+builder.add_edge("synthesize", "generate_html")
+builder.add_edge("generate_html", END)
 
 graph = builder.compile()
 
@@ -385,6 +1114,8 @@ def run_research_agent(query: str, max_iterations: int = 3, lang: str = "en"):
         "max_iterations": max_iterations,
         "keyword_history": [],
         "lang": lang,
+        "llm_outputs": {},
+        "html_report": "",
     }
 
     logger.debug("Initial state prepared, starting graph execution")
@@ -395,7 +1126,7 @@ def run_research_agent(query: str, max_iterations: int = 3, lang: str = "en"):
     logger.info(f"Final report length: {len(result['final_report'])} characters")
     logger.info("=" * 50)
 
-    return result["final_report"]
+    return result
 
 
 if __name__ == "__main__":
@@ -426,8 +1157,8 @@ if __name__ == "__main__":
         "--format",
         "-f",
         type=str,
-        default="markdown",
-        choices=["markdown", "txt", "json"],
+        default="html",
+        choices=["markdown", "txt", "json", "html"],
         help="Output format",
     )
 
@@ -661,14 +1392,17 @@ if __name__ == "__main__":
                     {
                         "query": args.query,
                         "timestamp": datetime.datetime.now().isoformat(),
-                        "report": report,
+                        "report": report["final_report"],
+                        "llm_outputs": report["llm_outputs"],
                     },
                     f,
                     indent=2,
                     ensure_ascii=False,
                 )
+            elif args.format == "html":
+                f.write(report["html_report"])
             else:
-                f.write(report)
+                f.write(report["final_report"])
 
         logger.info(f"✅ Report saved to: {output_file}")
     except IOError as e:
@@ -676,5 +1410,8 @@ if __name__ == "__main__":
         raise
 
     # Also print to console for immediate feedback
-    print(report)
+    if args.format == "html":
+        print("HTML report generated. Open the file in a browser to view it.")
+    else:
+        print(report["final_report"])
     logger.info("Research agent execution finished")
