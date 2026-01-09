@@ -138,6 +138,7 @@ def background_search_node(state: ResearchState):
     logger.debug("Invoking LLM to generate background summary")
     background = chain.invoke({"query": query, "search_results": search_results})
     logger.info(f"Background summary generated: {len(background)} characters")
+    logger.debug(f"Background summary output: {background}")
 
     return {
         "background": background,
@@ -264,6 +265,7 @@ def multi_search_node(state: ResearchState):
         logger.debug(f"Summarizing results for keyword: {kw}")
         summary = chain.invoke({"kw": kw, "result": result})
         logger.info(f"Generated summary for '{kw}': {len(summary)} characters")
+        logger.debug(f"Summary output for '{kw}': {summary}")
         summaries.append(summary)
 
     logger.info(f"Multi-search completed. Generated {len(summaries)} summaries")
@@ -315,6 +317,7 @@ def synthesize_node(state: ResearchState):
     logger.debug("Invoking LLM to synthesize final report")
     report = chain.invoke({"query": query, "summaries": "\n".join(summaries)})
     logger.info(f"Final report generated: {len(report)} characters")
+    logger.debug(f"Final report output: {report}")
 
     return {"final_report": report}
 
