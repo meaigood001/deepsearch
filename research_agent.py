@@ -667,32 +667,32 @@ def generate_html_node(state: ResearchState):
         }}
 
         .final-report {{
-            background: var(--primary-gradient);
-            color: white;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             border-left: none;
             position: relative;
         }}
 
         .final-report::before {{
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(124, 58, 237, 0.05) 0%, transparent 70%);
         }}
 
         .final-report h2 {{
-            color: white;
-            border-bottom: 3px solid rgba(255,255,255,0.25);
+            color: var(--accent-purple);
+            border-bottom: 3px solid var(--border-color);
             font-family: 'Playfair Display', Georgia, serif;
         }}
 
         .final-report h2::after {{
-            background: linear-gradient(90deg, #fff, rgba(255,255,255,0.5));
+            background: var(--secondary-gradient);
         }}
 
         .final-report .markdown-content {{
-            color: rgba(255,255,255,0.95);
+            color: var(--text-primary);
         }}
 
         .final-report .markdown-content strong {{
-            color: rgba(255,255,255,1);
+            color: var(--accent-purple);
             font-weight: 700;
         }}
 
@@ -917,6 +917,184 @@ def generate_html_node(state: ResearchState):
             }}
         }}
 
+        /* Sticky Navigation Bar Styles */
+        .nav-bar {{
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: var(--bg-primary);
+            border-bottom: 2px solid var(--border-color);
+            box-shadow: var(--shadow-md);
+            padding: 0;
+            transition: all 0.3s ease;
+        }}
+
+        .nav-bar.scrolled {{
+            box-shadow: var(--shadow-lg);
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+        }}
+
+        .nav-container {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+            max-width: 100%;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }}
+
+        .nav-container::-webkit-scrollbar {{
+            display: none;
+        }}
+
+        .nav-links {{
+            display: flex;
+            list-style: none;
+            gap: 0;
+            padding: 0;
+            margin: 0;
+            width: 100%;
+            justify-content: space-around;
+        }}
+
+        .nav-links li {{
+            flex: 1;
+            text-align: center;
+        }}
+
+        .nav-link {{
+            display: block;
+            padding: 18px 20px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95em;
+            transition: all 0.3s ease;
+            position: relative;
+            white-space: nowrap;
+            letter-spacing: 0.3px;
+        }}
+
+        .nav-link::before {{
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            height: 3px;
+            background: var(--primary-gradient);
+            transition: all 0.3s ease;
+            transform: translateX(-50%);
+            border-radius: 3px 3px 0 0;
+        }}
+
+        .nav-link:hover {{
+            color: var(--accent-purple);
+            background: linear-gradient(180deg, rgba(124, 58, 237, 0.05) 0%, transparent 100%);
+        }}
+
+        .nav-link:hover::before {{
+            width: 80%;
+        }}
+
+        .nav-link.active {{
+            color: var(--accent-purple);
+            font-weight: 600;
+            background: linear-gradient(180deg, rgba(124, 58, 237, 0.08) 0%, transparent 100%);
+        }}
+
+        .nav-link.active::before {{
+            width: 80%;
+            height: 3px;
+            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);
+        }}
+
+        .nav-link span {{
+            display: inline-block;
+            transition: transform 0.3s ease;
+        }}
+
+        .nav-link:hover span {{
+            transform: translateY(-2px);
+        }}
+
+        .mobile-menu-toggle {{
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1001;
+            background: var(--primary-gradient);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 56px;
+            height: 56px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: var(--shadow-xl);
+            transition: all 0.3s ease;
+        }}
+
+        .mobile-menu-toggle:hover {{
+            transform: scale(1.1);
+            box-shadow: var(--shadow-2xl);
+        }}
+
+        .mobile-menu-toggle.active {{
+            transform: rotate(45deg);
+        }}
+
+        /* Smooth scroll behavior */
+        html {{
+            scroll-behavior: smooth;
+            scroll-padding-top: 80px;
+        }}
+
+        /* Section ID targeting for smooth scroll */
+        .section {{
+            scroll-margin-top: 80px;
+        }}
+
+        @media (max-width: 768px) {{
+            .nav-container {{
+                padding: 0;
+            }}
+
+            .nav-link {{
+                padding: 15px 12px;
+                font-size: 0.85em;
+            }}
+
+            .nav-link::before {{
+                height: 2px;
+            }}
+
+            .nav-link.active::before {{
+                height: 2px;
+            }}
+
+            .nav-link span {{
+                display: block;
+                transform: none;
+            }}
+
+            .nav-link:hover span {{
+                transform: none;
+            }}
+
+            html {{
+                scroll-padding-top: 60px;
+            }}
+
+            .section {{
+                scroll-margin-top: 60px;
+            }}
+        }}
+
         @media (max-width: 480px) {{
             .header h1 {{
                 font-size: 1.8em;
@@ -933,6 +1111,20 @@ def generate_html_node(state: ResearchState):
             .markdown-content h1 {{
                 font-size: 1.5em;
             }}
+
+            .nav-container {{
+                justify-content: flex-start;
+            }}
+
+            .nav-link {{
+                padding: 14px 10px;
+                font-size: 0.8em;
+                letter-spacing: 0;
+            }}
+
+            .nav-link span {{
+                display: block;
+            }}
         }}
     </style>
 </head>
@@ -945,6 +1137,17 @@ def generate_html_node(state: ResearchState):
                 <p><strong>Generated:</strong> {current_time}</p>
             </div>
         </div>
+        <nav class="nav-bar" id="navBar">
+            <div class="nav-container">
+                <ul class="nav-links">
+                    <li><a href="#background" class="nav-link" data-section="background"><span>🔍 Background</span></a></li>
+                    <li><a href="#keywords" class="nav-link" data-section="keywords"><span>🎯 Keywords</span></a></li>
+                    <li><a href="#summaries" class="nav-link" data-section="summaries"><span>📋 Summaries</span></a></li>
+                    <li><a href="#gaps" class="nav-link" data-section="gaps"><span>🔎 Gap Analysis</span></a></li>
+                    <li><a href="#final" class="nav-link" data-section="final"><span>📝 Final Report</span></a></li>
+                </ul>
+            </div>
+        </nav>
         <div class="content" id="content">
             <p style="text-align: center; color: #999;">Loading report...</p>
         </div>
@@ -963,6 +1166,7 @@ def generate_html_node(state: ResearchState):
             if (contentData.background) {{
                 const section = document.createElement('div');
                 section.className = 'section';
+                section.id = 'background';
                 section.innerHTML = `
                     <h2>🔍 Background Research</h2>
                     <div class="markdown-content">${{marked.parse(contentData.background)}}</div>
@@ -980,6 +1184,7 @@ def generate_html_node(state: ResearchState):
                 if (contentData.keywords && contentData.keywords[iteration]) {{
                     const section = document.createElement('div');
                     section.className = 'section';
+                    section.id = 'keywords';
                     const keywords = contentData.keywords[iteration].keywords.map(kw =>
                         `<span class="keyword-tag">${{kw}}</span>`
                     ).join('');
@@ -996,6 +1201,7 @@ def generate_html_node(state: ResearchState):
                 if (contentData.summaries && contentData.summaries[iteration]) {{
                     const section = document.createElement('div');
                     section.className = 'section';
+                    section.id = 'summaries';
                     const summaries = contentData.summaries[iteration].map(item =>
                         `<h3>Keyword: ${{item.keyword}}</h3>
                          <div class="markdown-content">${{marked.parse(item.summary)}}</div>`
@@ -1015,6 +1221,7 @@ def generate_html_node(state: ResearchState):
                     const status = gap.gaps_found ? '⚠️ Gaps detected' : '✅ No gaps found';
                     const section = document.createElement('div');
                     section.className = 'section';
+                    section.id = 'gaps';
                     section.innerHTML = `
                         <span class="iteration-badge">Iteration ${{iteration}}</span>
                         <h2>🔎 Gap Analysis</h2>
@@ -1028,6 +1235,7 @@ def generate_html_node(state: ResearchState):
             if (contentData.final) {{
                 const section = document.createElement('div');
                 section.className = 'section final-report';
+                section.id = 'final';
                 section.innerHTML = `
                     <h2>📝 Final Report</h2>
                     <div class="markdown-content">${{marked.parse(contentData.final)}}</div>
@@ -1038,6 +1246,90 @@ def generate_html_node(state: ResearchState):
             document.querySelectorAll('pre code').forEach((block) => {{
                 hljs.highlightElement(block);
             }});
+
+            // Initialize navigation after content is loaded
+            initNavigation();
+        }}
+
+        // Navigation functionality
+        function initNavigation() {{
+            const navBar = document.getElementById('navBar');
+            const navLinks = document.querySelectorAll('.nav-link');
+            const sections = document.querySelectorAll('.section');
+
+            // Smooth scroll handling
+            navLinks.forEach(link => {{
+                link.addEventListener('click', function(e) {{
+                    e.preventDefault();
+                    const targetId = this.getAttribute('href').substring(1);
+                    const targetSection = document.getElementById(targetId);
+
+                    if (targetSection) {{
+                        const navHeight = navBar.offsetHeight;
+                        const elementPosition = targetSection.getBoundingClientRect().top;
+                        const offsetPosition = elementPosition + window.pageYOffset - navHeight - 10;
+
+                        window.scrollTo({{
+                            top: offsetPosition,
+                            behavior: 'smooth'
+                        }});
+                    }}
+                }});
+            }});
+
+            // Active section detection on scroll
+            function updateActiveNav() {{
+                const scrollPosition = window.pageYOffset + navBar.offsetHeight + 20;
+
+                let currentSection = '';
+
+                sections.forEach(section => {{
+                    const sectionTop = section.offsetTop;
+                    const sectionHeight = section.offsetHeight;
+
+                    if (scrollPosition >= sectionTop && scrollPosition < sectionTop + sectionHeight) {{
+                        currentSection = section.id;
+                    }}
+                }});
+
+                // If we're at the bottom of the page, activate the last section
+                if (window.innerHeight + window.pageYOffset >= document.body.offsetHeight - 100) {{
+                    currentSection = sections[sections.length - 1].id;
+                }}
+
+                navLinks.forEach(link => {{
+                    link.classList.remove('active');
+                    if (link.getAttribute('data-section') === currentSection) {{
+                        link.classList.add('active');
+                    }}
+                }});
+            }}
+
+            // Sticky nav bar scroll effect
+            function updateNavBarStyle() {{
+                if (window.pageYOffset > 10) {{
+                    navBar.classList.add('scrolled');
+                }} else {{
+                    navBar.classList.remove('scrolled');
+                }}
+            }}
+
+            // Scroll event listeners with throttling
+            let ticking = false;
+            window.addEventListener('scroll', function() {{
+                if (!ticking) {{
+                    window.requestAnimationFrame(function() {{
+                        updateActiveNav();
+                        updateNavBarStyle();
+                        ticking = false;
+                    }});
+                    ticking = true;
+                }}
+            }}, {{ passive: true }});
+
+            // Initial update
+            updateActiveNav();
+            updateNavBarStyle();
         }}
 
         document.addEventListener('DOMContentLoaded', renderMarkdown);
