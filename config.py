@@ -53,6 +53,7 @@ class ModelConfig:
 
     # Available research agent nodes that use LLMs
     NODE_NAMES = [
+        "background_search",
         "generate_keywords",
         "multi_search",
         "check_gaps",

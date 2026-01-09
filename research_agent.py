@@ -114,12 +114,30 @@ def background_search_node(state: ResearchState):
 
     search_tool = web_search
     logger.debug(f"Invoking web search tool for query: {query}")
-    background = search_tool.invoke(query)
+    search_results = search_tool.invoke(query)
 
     logger.info(
-        f"Background search completed. Results length: {len(str(background))} characters"
+        f"Background search completed. Results length: {len(str(search_results))} characters"
     )
-    logger.debug(f"Background search results preview: {str(background)[:200]}...")
+    logger.debug(f"Background search results preview: {str(search_results)[:200]}...")
+
+    time_instruction = get_time_awareness_instruction(
+        state["current_time"], state["lang"]
+    )
+
+    prompt = ChatPromptTemplate.from_template(
+        f"{time_instruction}\n"
+        f"🎯 USER'S ORIGINAL REQUEST: {state['original_query']}\n"
+        f"💡 IMPORTANT: The background summary should provide essential context and foundational knowledge about the topic.\n"
+        f"Summarize the following search results for the query '{{query}}' into a comprehensive background summary:\n"
+        f"{{search_results}}"
+    )
+
+    chain = prompt | llm_instances["background_search"] | StrOutputParser()
+
+    logger.debug("Invoking LLM to generate background summary")
+    background = chain.invoke({"query": query, "search_results": search_results})
+    logger.info(f"Background summary generated: {len(background)} characters")
 
     return {
         "background": background,
@@ -152,7 +170,7 @@ def generate_keywords_node(state: ResearchState):
         f"🎯 USER'S ORIGINAL REQUEST: {original_query}\n"
         f"💡 IMPORTANT: Your search should help answer their specific question, not just collect general information about the paragraph topic.\n"
         f"📋 INSTRUCTIONS:\n"
-        f"- Generate 3-5 search keywords for in-depth research on: {{query}}\n"
+        f"- Generate 3-5 search keywords for google search in-depth research on: {{query}}\n"
         f"- Based on background information: {{background}}\n"
         f"- Keywords must be different from previous searches: {keyword_history}\n"
         f"- Return as valid JSON with key 'keywords' containing array of 3-5 strings\n"
