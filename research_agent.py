@@ -7,7 +7,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
-from typing import TypedDict, Annotated
+from typing import TypedDict, Annotated, Dict
 import operator
 import datetime
 import logging
@@ -16,6 +16,9 @@ import re
 import argparse
 from pathlib import Path
 from pydantic import BaseModel, Field
+
+from config import load_model_config
+from llm_factory import create_llm_instances
 
 load_dotenv()
 
@@ -100,12 +103,8 @@ class KeywordsResponse(BaseModel):
     )
 
 
-# Define nodes
-llm = ChatOpenAI(
-    model=os.getenv("MODEL_NAME", "minimaxai/minimax-m2.1"),
-    temperature=0,
-    base_url=os.getenv("OPENAI_BASE_URL", "https://api.minimax.chat/v1"),
-)
+# Define nodes - LLM instances will be initialized after CLI args are parsed
+llm_instances: Dict[str, ChatOpenAI] = {}
 
 
 def background_search_node(state: ResearchState):
@@ -161,7 +160,7 @@ def generate_keywords_node(state: ResearchState):
         f"- Do NOT include explanations or numbered lists\n"
     )
 
-    chain = prompt | llm | StrOutputParser()
+    chain = prompt | llm_instances["generate_keywords"] | StrOutputParser()
     logger.debug("Invoking LLM to generate keywords")
     llm_output = chain.invoke({"background": background, "query": query})
 
@@ -242,7 +241,7 @@ def multi_search_node(state: ResearchState):
         prompt = ChatPromptTemplate.from_template(
             f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: The paragraph must help answer the user's original research question. Focus on information relevant to their specific inquiry.\nSummarize the following search results for keyword '{{kw}}': {{result}}"
         )
-        chain = prompt | llm | StrOutputParser()
+        chain = prompt | llm_instances["multi_search"] | StrOutputParser()
 
         logger.debug(f"Summarizing results for keyword: {kw}")
         summary = chain.invoke({"kw": kw, "result": result})
@@ -265,7 +264,7 @@ def check_gaps_node(state: ResearchState):
     prompt = ChatPromptTemplate.from_template(
         f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Reflect on whether the current paragraphs sufficiently address the user's original research question. Identify deficiencies, especially in answering the query.\nReview these summaries: {{summaries}}\nAgainst the query: {{query}}\nAre there gaps? Answer 'yes' or 'no'."
     )
-    chain = prompt | llm | StrOutputParser()
+    chain = prompt | llm_instances["check_gaps"] | StrOutputParser()
 
     logger.debug("Invoking LLM to check for gaps")
     gaps = chain.invoke({"summaries": "\n".join(summaries), "query": query})
@@ -291,9 +290,9 @@ def synthesize_node(state: ResearchState):
     )
 
     prompt = ChatPromptTemplate.from_template(
-        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure the final report comprehensively answers the user's original research question. Conclude by summarizing how the report addresses their specific inquiry.\nSynthesize these summaries into a comprehensive report for the query: {{query}}\nSummaries: {{summaries}}"
+        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure final report comprehensively answers user's original research question. Conclude by summarizing how report addresses their specific inquiry.\nSynthesize these summaries into a comprehensive report for the query: {{query}}\nSummaries: {{summaries}}"
     )
-    chain = prompt | llm | StrOutputParser()
+    chain = prompt | llm_instances["synthesize"] | StrOutputParser()
 
     logger.debug("Invoking LLM to synthesize final report")
     report = chain.invoke({"query": query, "summaries": "\n".join(summaries)})
@@ -420,6 +419,84 @@ if __name__ == "__main__":
         help="Maximum number of research iterations",
     )
 
+    # Global model configuration
+    parser.add_argument(
+        "--model",
+        "-m",
+        type=str,
+        default=None,
+        help="Global model name for all nodes (overrides MODEL_NAME env var)",
+    )
+
+    parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        help="Global API base URL for all nodes (overrides OPENAI_BASE_URL env var)",
+    )
+
+    # Node-specific model configuration
+    model_group = parser.add_argument_group(
+        "Node-specific models",
+        "Configure different models for each research agent node",
+    )
+
+    model_group.add_argument(
+        "--model-generate-keywords",
+        type=str,
+        default=None,
+        help="Model for generate_keywords node",
+    )
+    model_group.add_argument(
+        "--model-multi-search",
+        type=str,
+        default=None,
+        help="Model for multi_search node",
+    )
+    model_group.add_argument(
+        "--model-check-gaps",
+        type=str,
+        default=None,
+        help="Model for check_gaps node",
+    )
+    model_group.add_argument(
+        "--model-synthesize",
+        type=str,
+        default=None,
+        help="Model for synthesize node",
+    )
+
+    # Node-specific base URL configuration
+    base_url_group = parser.add_argument_group(
+        "Node-specific base URLs",
+        "Configure different API base URLs for each research agent node",
+    )
+
+    base_url_group.add_argument(
+        "--base-url-generate-keywords",
+        type=str,
+        default=None,
+        help="API base URL for generate_keywords node",
+    )
+    base_url_group.add_argument(
+        "--base-url-multi-search",
+        type=str,
+        default=None,
+        help="API base URL for multi_search node",
+    )
+    base_url_group.add_argument(
+        "--base-url-check-gaps",
+        type=str,
+        default=None,
+        help="API base URL for check_gaps node",
+    )
+    base_url_group.add_argument(
+        "--base-url-synthesize",
+        type=str,
+        default=None,
+        help="API base URL for synthesize node",
+    )
+
     parser.add_argument(
         "--lang",
         type=str,
@@ -473,6 +550,54 @@ if __name__ == "__main__":
 
     logging.getLogger().setLevel(getattr(logging, log_level))
     logger.info(f"Log level set to: {log_level}")
+
+    # Build CLI overrides for model configuration
+    cli_overrides = {}
+
+    # Global overrides
+    if args.model or args.base_url:
+        for node in ["generate_keywords", "multi_search", "check_gaps", "synthesize"]:
+            cli_overrides[node] = {}
+            if args.model:
+                cli_overrides[node]["model"] = args.model
+            if args.base_url:
+                cli_overrides[node]["base_url"] = args.base_url
+
+    # Node-specific overrides
+    if args.model_generate_keywords:
+        cli_overrides.setdefault("generate_keywords", {})["model"] = (
+            args.model_generate_keywords
+        )
+    if args.base_url_generate_keywords:
+        cli_overrides.setdefault("generate_keywords", {})["base_url"] = (
+            args.base_url_generate_keywords
+        )
+
+    if args.model_multi_search:
+        cli_overrides.setdefault("multi_search", {})["model"] = args.model_multi_search
+    if args.base_url_multi_search:
+        cli_overrides.setdefault("multi_search", {})["base_url"] = (
+            args.base_url_multi_search
+        )
+
+    if args.model_check_gaps:
+        cli_overrides.setdefault("check_gaps", {})["model"] = args.model_check_gaps
+    if args.base_url_check_gaps:
+        cli_overrides.setdefault("check_gaps", {})["base_url"] = (
+            args.base_url_check_gaps
+        )
+
+    if args.model_synthesize:
+        cli_overrides.setdefault("synthesize", {})["model"] = args.model_synthesize
+    if args.base_url_synthesize:
+        cli_overrides.setdefault("synthesize", {})["base_url"] = (
+            args.base_url_synthesize
+        )
+
+    # Initialize LLM instances with configuration
+    model_config = load_model_config(cli_overrides)
+    llm_instances_global = create_llm_instances(model_config)
+    llm_instances.update(llm_instances_global)
 
     # Generate output filename if not provided
     output_file = args.output

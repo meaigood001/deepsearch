@@ -233,19 +233,74 @@ def process_query(query: str):
 - Use environment variables for sensitive data
 - Use .env files for local development
 - Validate configuration at startup
+- Support hierarchical configuration (global → node-specific → CLI overrides)
+- Use dataclasses for configuration structures
+
 ```python
-from pydantic_settings import BaseSettings
+from dataclasses import dataclass
 
-class Settings(BaseSettings):
-    openai_api_key: str
-    tavily_api_key: str
-    openai_base_url: str = "https://api.minimax.chat/v1"
-    
-    class Config:
-        env_file = ".env"
-
-settings = Settings()
+@dataclass
+class NodeModelConfig:
+    """Configuration for a single LLM instance used by a research agent node."""
+    model: str
+    base_url: str
+    temperature: float = 0.0
+    api_key: Optional[str] = None
 ```
+
+**Per-Node Configuration Pattern:**
+
+When nodes require different models (e.g., different capabilities, providers, or costs):
+1. Use hierarchical configuration with fallbacks
+2. Support both environment variables and CLI overrides
+3. Validate configuration at startup
+4. Provide clear defaults
+
+```python
+class ModelConfig:
+    """Manages model configuration for all research agent nodes."""
+
+    NODE_NAMES = ["generate_keywords", "multi_search", "check_gaps", "synthesize"]
+
+    def __init__(self, cli_overrides: Optional[Dict[str, Dict[str, str]]] = None):
+        self.global_config = self._load_global_config()
+        self.node_configs = self._load_node_configs(cli_overrides or {})
+
+    def get_config(self, node_name: str) -> NodeModelConfig:
+        """Get configuration for a specific node."""
+        if node_name not in self.NODE_NAMES:
+            raise ValueError(f"Invalid node name: {node_name}")
+        return self.node_configs[node_name]
+```
+
+**Factory Pattern for LLM Creation:**
+
+Use factory functions for creating LLM instances with configuration:
+
+```python
+def create_llm(config: NodeModelConfig) -> ChatOpenAI:
+    """Create a ChatOpenAI instance from configuration."""
+    return ChatOpenAI(
+        model=config.model,
+        temperature=config.temperature,
+        base_url=config.base_url,
+        api_key=config.api_key,
+    )
+
+def create_llm_instances(model_config: ModelConfig) -> Dict[str, ChatOpenAI]:
+    """Create LLM instances for all research agent nodes."""
+    return {
+        node_name: create_llm(model_config.get_config(node_name))
+        for node_name in model_config.NODE_NAMES
+    }
+```
+
+**Configuration Priority Order:**
+
+1. CLI arguments (highest priority)
+2. Node-specific environment variables
+3. Global environment variables
+4. Default values (lowest priority)
 
 ### Documentation
 - Use docstrings for modules, classes, and functions

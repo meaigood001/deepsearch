@@ -51,6 +51,61 @@ OPENAI_BASE_URL=https://api.minimax.chat/v1
 MODEL_NAME=minimaxai/minimax-m2.1
 ```
 
+### Per-Node Model Configuration (Advanced)
+
+每个研究代理节点可以配置不同的模型，以充分利用不同模型的能力。
+
+**研究节点列表：**
+- `generate_keywords`：生成搜索关键词
+- `multi_search`：总结搜索结果
+- `check_gaps`：分析研究缺口
+- `synthesize`：生成最终综合报告
+
+**环境变量配置：**
+
+```env
+# 全局默认模型
+MODEL_NAME=minimaxai/minimax-m2.1
+OPENAI_BASE_URL=https://api.minimax.chat/v1
+
+# 节点特定模型（可选）
+MODEL_GENERATE_KEYWORDS=gpt-4
+MODEL_MULTI_SEARCH=gpt-3.5-turbo
+MODEL_CHECK_GAPS=gpt-4
+MODEL_SYNTHESIZE=gpt-4
+
+# 节点特定API base URL（可选）
+BASE_URL_SYNTHESIZE=https://api.openai.com/v1
+BASE_URL_CHECK_GAPS=https://api.openai.com/v1
+```
+
+**命令行参数配置：**
+
+```bash
+# 全局模型覆盖所有节点
+uv run python research_agent.py "AI安全" --model gpt-4
+
+# 节点特定模型
+uv run python research_agent.py "AI安全" \
+  --model-generate-keywords gpt-4 \
+  --model-multi-search gpt-3.5-turbo \
+  --model-check-gaps gpt-4 \
+  --model-synthesize gpt-4
+
+# 混合不同的API提供商
+uv run python research_agent.py "AI安全" \
+  --model-generate-keywords minimaxai/minimax-m2.1 \
+  --base-url-generate-keywords https://api.minimax.chat/v1 \
+  --model-synthesize gpt-4 \
+  --base-url-synthesize https://api.openai.com/v1
+```
+
+**配置优先级：**
+1. 命令行参数（最高优先级）
+2. 节点特定环境变量
+3. 全局环境变量（`MODEL_NAME`）
+4. 默认值（最低优先级）
+
 ## 运行
 
 ### 基本用法
