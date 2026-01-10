@@ -5,7 +5,7 @@
 ## 功能
 
 - **CLI参数输入**：通过命令行参数指定研究问题
-- **多格式输出**：支持Markdown、JSON、TXT格式导出报告
+- **多格式输出**：支持Markdown、JSON、TXT、HTML格式导出报告
 - 自动背景搜索问题
 - 生成多组关键词进行深入研究
 - 多轮搜索并摘要
@@ -186,6 +186,16 @@ uv run python research_agent.py "AI安全" --limit-final 3000
 
 ### 输出格式
 
+**HTML格式（自动生成完整网站）：**
+
+```bash
+# HTML格式会自动生成所有相关文件（HTML、CSS、JS等）
+# 保存到output目录的子文件夹中
+uv run python research_agent_v2.py "有什么好笑、有脑洞的电影推荐" --format html --max-iterations 1
+```
+
+**其他格式（仅输出单个文件）：**
+
 ```bash
 # Markdown格式（默认）
 uv run python research_agent.py "AI安全" --format markdown
@@ -196,6 +206,10 @@ uv run python research_agent.py "AI安全" --format json -o report.json
 # 纯文本格式
 uv run python research_agent.py "AI安全" --format txt -o report.txt
 ```
+
+**格式说明：**
+- **HTML格式**：自动生成完整的网站结构，包括HTML、CSS、JavaScript等文件，保存到output目录的子文件夹中，适合在浏览器中查看和分享
+- **Markdown/JSON/TXT格式**：仅生成单个报告文件，保存到指定路径或自动生成的文件名
 
 ### 日志级别控制
 
@@ -289,7 +303,7 @@ uv run python research_agent.py \
 通过命令行参数自定义研究行为：
 
 - **查询内容**：直接作为位置参数传递
-- **输出格式**：`--format` 选项（markdown/json/txt）
+- **输出格式**：`--format` 选项（markdown/json/txt/html）
 - **输出路径**：`--output` 选项（不指定则自动生成）
 - **迭代次数**：`--max-iterations` 选项（默认3次）
 - **提示语言**：`--lang` 选项（en/zh）
