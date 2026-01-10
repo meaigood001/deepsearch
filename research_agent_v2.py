@@ -487,6 +487,114 @@ def synthesize_node(state: ResearchState):
     return {"final_report": report, "llm_outputs": llm_outputs}
 
 
+def save_node_markdown_files(state: dict, output_dir: Path):
+    logger.info("=== SAVING NODE MARKDOWN FILES STARTED ===")
+
+    original_query = state.get("original_query", "")
+    llm_outputs = state.get("llm_outputs", {})
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Created output directory: {output_dir}")
+
+    if "background_search" in llm_outputs:
+        bg_data = llm_outputs["background_search"]
+        bg_summary = (
+            bg_data.get("summary", "") if isinstance(bg_data, dict) else str(bg_data)
+        )
+
+        sources_md = ""
+        if isinstance(bg_data, dict) and "sources" in bg_data:
+            sources_md = "\n\n**Sources:**\n"
+            for source in bg_data["sources"]:
+                sources_md += (
+                    f"- [{source.get('title', source['url'])}]({source['url']})\n"
+                )
+
+        bg_file = output_dir / "01_background_search.md"
+        bg_file.write_text(
+            f"# 🔍 Background Research\n\n{bg_summary}{sources_md}",
+            encoding="utf-8",
+        )
+        logger.info(f"Saved background search to: {bg_file}")
+
+    if "synthesize" in llm_outputs:
+        synthesize_data = llm_outputs["synthesize"]
+        final_report = (
+            synthesize_data.get("report", "")
+            if isinstance(synthesize_data, dict)
+            else str(synthesize_data)
+        )
+
+        sources_md = ""
+        if isinstance(synthesize_data, dict) and "sources" in synthesize_data:
+            sources_md = "\n\n## Sources\n\n"
+            for source in synthesize_data["sources"]:
+                sources_md += (
+                    f"- [{source.get('title', source['url'])}]({source['url']})\n"
+                )
+
+        final_file = output_dir / "05_synthesize.md"
+        final_file.write_text(
+            f"# 📝 Final Report\n\n{final_report}{sources_md}",
+            encoding="utf-8",
+        )
+        logger.info(f"Saved final report to: {final_file}")
+
+    iterations = set()
+    for key in llm_outputs.keys():
+        if key.startswith("generate_keywords_iteration_"):
+            iteration = key.split("_")[-1]
+            iterations.add(iteration)
+
+    for iteration in sorted(iterations, key=int):
+        keywords_key = f"generate_keywords_iteration_{iteration}"
+        multi_search_key = f"multi_search_iteration_{iteration}"
+        check_gaps_key = f"check_gaps_iteration_{iteration}"
+
+        if keywords_key in llm_outputs:
+            kw_data = llm_outputs[keywords_key]
+            keywords = kw_data.get("parsed_keywords", [])
+            keywords_file = output_dir / f"02_generate_keywords_iter{iteration}.md"
+            keywords_file.write_text(
+                f"# 🎯 Generated Keywords (Iteration {iteration})\n\n"
+                f"**Original Query:** {original_query}\n\n"
+                f"## Keywords\n\n" + "\n".join(f"- {kw}" for kw in keywords),
+                encoding="utf-8",
+            )
+            logger.info(f"Saved keywords iteration {iteration} to: {keywords_file}")
+
+        if multi_search_key in llm_outputs:
+            summaries_data = llm_outputs[multi_search_key]
+            summaries_md = f"# 📋 Search Summaries (Iteration {iteration})\n\n**Original Query:** {original_query}\n\n"
+
+            for item in summaries_data:
+                keyword = item.get("keyword", "")
+                summary = item.get("summary", "")
+                summaries_md += f"\n## Keyword: {keyword}\n\n{summary}\n\n"
+
+            summaries_file = output_dir / f"03_multi_search_iter{iteration}.md"
+            summaries_file.write_text(summaries_md, encoding="utf-8")
+            logger.info(f"Saved summaries iteration {iteration} to: {summaries_file}")
+
+        if check_gaps_key in llm_outputs:
+            gap_data = llm_outputs[check_gaps_key]
+            gaps_found = gap_data.get("gaps_found", False)
+            raw_output = gap_data.get("raw_output", "")
+            status = "⚠️ Gaps detected" if gaps_found else "✅ No gaps found"
+
+            gaps_file = output_dir / f"04_check_gaps_iter{iteration}.md"
+            gaps_file.write_text(
+                f"# 🔎 Gap Analysis (Iteration {iteration})\n\n"
+                f"**Original Query:** {original_query}\n\n"
+                f"**Status:** {status}\n\n"
+                f"**Analysis:**\n\n{raw_output}",
+                encoding="utf-8",
+            )
+            logger.info(f"Saved gap analysis iteration {iteration} to: {gaps_file}")
+
+    logger.info("=== SAVING NODE MARKDOWN FILES COMPLETED ===")
+
+
 def generate_html_node(state: ResearchState):
     logger.info("=== GENERATE HTML NODE STARTED ===")
 
@@ -496,17 +604,10 @@ def generate_html_node(state: ResearchState):
 
     logger.info("Generating HTML report")
 
-    def escape_js_string(text):
+    def escape_js_string(text: str) -> str:
         if not text:
             return ""
-        text = text.replace("\\", "\\\\")
-        text = text.replace("\n", "\\n")
-        text = text.replace("\r", "\\r")
-        text = text.replace("\t", "\\t")
-        text = text.replace('"', '\\"')
-        text = text.replace("'", "\\'")
-        text = text.replace("`", "\\`")
-        text = text.replace("$", "\\$")
+        text = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
         return text
 
     content_data = {}
@@ -514,9 +615,24 @@ def generate_html_node(state: ResearchState):
     if "background_search" in llm_outputs:
         bg_data = llm_outputs["background_search"]
         if isinstance(bg_data, dict):
-            content_data["background"] = escape_js_string(bg_data.get("summary", ""))
+            content_data["background"] = bg_data.get("summary", "")
         else:
-            content_data["background"] = escape_js_string(bg_data)
+            content_data["background"] = bg_data
+
+    for key in ["background", "final"]:
+        if key in content_data:
+            content_data[key] = escape_js_string(content_data[key])
+
+    if "summaries" in content_data:
+        for iter_key, summaries in content_data["summaries"].items():
+            for item in summaries:
+                if "summary" in item:
+                    item["summary"] = escape_js_string(item["summary"])
+
+    if "gaps" in content_data:
+        for iter_key, gap_data in content_data["gaps"].items():
+            if "raw_output" in gap_data:
+                gap_data["raw_output"] = escape_js_string(gap_data["raw_output"])
 
     iterations = set()
     for key in llm_outputs.keys():
@@ -529,9 +645,9 @@ def generate_html_node(state: ResearchState):
                 content_data["keywords"][iteration] = {"keywords": []}
             for k, v in llm_outputs.items():
                 if k == f"generate_keywords_iteration_{iteration}":
-                    content_data["keywords"][iteration]["keywords"] = [
-                        escape_js_string(kw) for kw in v.get("parsed_keywords", [])
-                    ]
+                    content_data["keywords"][iteration]["keywords"] = v.get(
+                        "parsed_keywords", []
+                    )
 
     for key, value in llm_outputs.items():
         if key.startswith("multi_search_iteration_"):
@@ -540,8 +656,8 @@ def generate_html_node(state: ResearchState):
                 content_data["summaries"] = {}
             content_data["summaries"][iteration] = [
                 {
-                    "keyword": escape_js_string(item["keyword"]),
-                    "summary": escape_js_string(item["summary"]),
+                    "keyword": item["keyword"],
+                    "summary": item["summary"],
                 }
                 for item in value
             ]
@@ -553,22 +669,22 @@ def generate_html_node(state: ResearchState):
                 content_data["gaps"] = {}
             content_data["gaps"][iteration] = {
                 "gaps_found": value.get("gaps_found", False),
-                "raw_output": escape_js_string(value.get("raw_output", "")),
+                "raw_output": value.get("raw_output", ""),
             }
 
     if "synthesize" in llm_outputs:
         synthesize_data = llm_outputs["synthesize"]
         if isinstance(synthesize_data, dict):
-            content_data["final"] = escape_js_string(synthesize_data.get("report", ""))
+            content_data["final"] = synthesize_data.get("report", "")
             content_data["sources"] = [
                 {
-                    "url": escape_js_string(source.get("url", "")),
-                    "title": escape_js_string(source.get("title", "")),
+                    "url": source.get("url", ""),
+                    "title": source.get("title", ""),
                 }
                 for source in synthesize_data.get("sources", [])
             ]
         else:
-            content_data["final"] = escape_js_string(synthesize_data)
+            content_data["final"] = synthesize_data
             content_data["sources"] = []
 
     if "background_search" in llm_outputs:
@@ -581,11 +697,22 @@ def generate_html_node(state: ResearchState):
                 if "url" in source and source["url"] not in seen_urls:
                     content_data["sources"].append(
                         {
-                            "url": escape_js_string(source.get("url", "")),
-                            "title": escape_js_string(source.get("title", "")),
+                            "url": source.get("url", ""),
+                            "title": source.get("title", ""),
                         }
                     )
                     seen_urls.add(source["url"])
+
+    js_data = json.dumps(
+        {
+            "background": escape_js_string(content_data.get("background", "")),
+            "keywords": content_data.get("keywords", {}),
+            "summaries": content_data.get("summaries", {}),
+            "gaps": content_data.get("gaps", {}),
+            "final": escape_js_string(content_data.get("final", "")),
+            "sources": content_data.get("sources", []),
+        }
+    )
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1374,8 +1501,51 @@ def generate_html_node(state: ResearchState):
         </div>
     </div>
 
+    <!-- Store raw markdown content to preserve formatting including code blocks -->
+    <script type="text/markdown" id="md-background">{content_data.get("background", "")}</script>
+    <script type="text/markdown" id="md-final">{content_data.get("final", "")}</script>
+"""
+
+    # Add iteration summaries markdown
+    for k, v in content_data.get("summaries", {}).items():
+        for idx, item in enumerate(v):
+            html_content += f'    <script type="text/markdown" id="md-iteration-{k}-summary-{idx}">{item["summary"]}</script>\n'
+
+    # Add iteration gaps markdown
+    for k, v in content_data.get("gaps", {}).items():
+        html_content += f'    <script type="text/markdown" id="md-iteration-{k}-gaps">{v["raw_output"]}</script>\n'
+
+    # Build JavaScript data object for HTML
+    js_data = json.dumps(
+        {
+            "background": escape_js_string(content_data.get("background", "")),
+            "keywords": content_data.get("keywords", {}),
+            "summaries": content_data.get("summaries", {}),
+            "gaps": content_data.get("gaps", {}),
+            "final": escape_js_string(content_data.get("final", "")),
+            "sources": content_data.get("sources", []),
+        }
+    )
+
+    html_content += f"""
     <script>
-        const contentData = {json.dumps(content_data)};
+        const contentData = {js_data};
+
+        // Configure marked.js for markdown rendering with highlight.js
+        marked.setOptions({{
+            breaks: true,
+            gfm: true,
+            highlight: function(code, lang) {{
+                if (lang && hljs.getLanguage(lang)) {{
+                    try {{
+                        return hljs.highlight(code, {{ language: lang }}).value;
+                    }} catch (err) {{
+                        console.error('Highlight.js error:', err);
+                    }}
+                }}
+                return hljs.highlightAuto(code).value;
+            }}
+        }});
 
         function renderMarkdown() {{
             const contentEl = document.getElementById('content');
@@ -1939,17 +2109,33 @@ if __name__ == "__main__":
 
     # Generate output filename if not provided
     output_file = args.output
+    output_dir = None
+
     if not output_file:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_query = re.sub(r"[^\w\s-]", "", args.query)[:30].strip()
         safe_query = re.sub(r"\s+", "_", safe_query)
         ext = "md" if args.format == "markdown" else args.format.lower()
-        output_file = f"output/{safe_query}_{timestamp}.{ext}"
+
+        if args.format == "html":
+            output_dir = Path(f"output/{safe_query}_{timestamp}/")
+            output_file = str(output_dir / "report.html")
+        else:
+            output_file = f"output/{safe_query}_{timestamp}.{ext}"
+    else:
+        if args.format == "html" and Path(output_file).suffix == ".html":
+            output_dir = Path(output_file).parent
+        else:
+            output_dir = None
 
     # Ensure output directory exists
     output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Output directory ensured: {output_path.parent}")
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Output directory created: {output_dir}")
+    else:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Output directory ensured: {output_path.parent}")
 
     # Run research agent
     logger.info(f"Running research agent with query: {args.query}")
@@ -1994,13 +2180,21 @@ if __name__ == "__main__":
                 f.write(report["final_report"])
 
         logger.info(f"✅ Report saved to: {output_file}")
+
+        if args.format == "html" and output_dir:
+            save_node_markdown_files(report, output_dir)
+            logger.info(f"✅ Node markdown files saved to: {output_dir}")
     except IOError as e:
         logger.error(f"❌ Failed to write output file: {e}")
         raise
 
     # Also print to console for immediate feedback
     if args.format == "html":
-        print("HTML report generated. Open the file in a browser to view it.")
+        if output_dir:
+            print(f"HTML report generated at: {output_file}")
+            print(f"Node markdown files saved to: {output_dir}")
+        else:
+            print("HTML report generated. Open the file in a browser to view it.")
     else:
         print(report["final_report"])
     logger.info("Research agent execution finished")
