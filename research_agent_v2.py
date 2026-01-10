@@ -91,15 +91,20 @@ class ResearchState(TypedDict):
     llm_outputs: dict
     html_report: str
     char_limits: dict
+    background_sources: list
+    keyword_search_sources: dict
 
 
 # Define tools
 @tool
 def web_search(query: str) -> str:
-    """Search the web for information related to the query."""
+    """Search the web using Tavily to find relevant information."""
     search = TavilySearch(max_results=5)
     results = search.invoke({"query": query})
-    return json.dumps(results) if isinstance(results, dict) else str(results)
+
+    if isinstance(results, dict):
+        return json.dumps(results, ensure_ascii=False)
+    return str(results)
 
 
 @tool
@@ -132,19 +137,53 @@ def background_search_node(state: ResearchState):
     )
     logger.debug(f"Background search results preview: {str(search_results)[:200]}...")
 
+    extracted_sources = []
+    try:
+        results_dict = (
+            json.loads(search_results)
+            if isinstance(search_results, str)
+            else search_results
+        )
+        if isinstance(results_dict, dict) and "results" in results_dict:
+            for result in results_dict["results"]:
+                if "url" in result:
+                    extracted_sources.append(
+                        {
+                            "url": result["url"],
+                            "title": result.get("title", ""),
+                        }
+                    )
+        logger.info(
+            f"Extracted {len(extracted_sources)} sources from background search"
+        )
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse search results as JSON: {e}")
+    except Exception as e:
+        logger.warning(f"Error extracting sources: {e}")
+
     time_instruction = get_time_awareness_instruction(
         state["current_time"], state["lang"]
     )
 
     char_limit = state.get("char_limits", {}).get("background", 300)
 
+    sources_text = (
+        "\n\nSources:\n"
+        + "\n".join(
+            [f"- [{source['title']}]({source['url']})" for source in extracted_sources]
+        )
+        if extracted_sources
+        else ""
+    )
+
     prompt = ChatPromptTemplate.from_template(
         f"{time_instruction}\n"
         f"🎯 USER'S ORIGINAL REQUEST: {state['original_query']}\n"
         f"💡 IMPORTANT: The background summary should provide essential context and foundational knowledge about the topic.\n"
-        f"Summarize length: approximately {char_limit} characters.\n"
-        f"Summarize the following search results for the query '{{query}}' into a comprehensive background summary:\n"
-        f"{{search_results}}"
+        f"\\Summarize length: approximately {char_limit} characters.\n"
+        f"\\Summarize the following search results for the query '{{query}}' into a comprehensive background summary:\n"
+        f"{{search_results}}\n"
+        f"{sources_text}"
     )
 
     chain = prompt | llm_instances["background_search"] | StrOutputParser()
@@ -155,12 +194,16 @@ def background_search_node(state: ResearchState):
     logger.debug(f"Background summary output: {background}")
 
     llm_outputs = state.get("llm_outputs", {})
-    llm_outputs["background_search"] = background
+    llm_outputs["background_search"] = {
+        "summary": background,
+        "sources": extracted_sources,
+    }
 
     return {
         "background": background,
         "confirmed": True,
         "llm_outputs": llm_outputs,
+        "background_sources": extracted_sources,
     }
 
 
@@ -277,6 +320,8 @@ def multi_search_node(state: ResearchState):
     char_limit = state.get("char_limits", {}).get("keyword_summary", 500)
 
     multi_search_outputs = []
+    keyword_search_sources = state.get("keyword_search_sources", {})
+
     for idx, kw in enumerate(keywords, 1):
         logger.info(f"Processing keyword {idx}/{len(keywords)}: {kw}")
 
@@ -285,8 +330,41 @@ def multi_search_node(state: ResearchState):
         result = search_tool.invoke(kw)
         logger.debug(f"Search results for '{kw}': {len(str(result))} characters")
 
+        extracted_sources = []
+        try:
+            results_dict = json.loads(result) if isinstance(result, str) else result
+            if isinstance(results_dict, dict) and "results" in results_dict:
+                for res in results_dict["results"]:
+                    if "url" in res:
+                        extracted_sources.append(
+                            {
+                                "url": res["url"],
+                                "title": res.get("title", ""),
+                            }
+                        )
+            logger.debug(
+                f"Extracted {len(extracted_sources)} sources for keyword '{kw}'"
+            )
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse search results for '{kw}': {e}")
+        except Exception as e:
+            logger.warning(f"Error extracting sources for '{kw}': {e}")
+
+        sources_list = (
+            "\n".join(
+                [
+                    f"- [{source['title']}]({source['url']})"
+                    for source in extracted_sources
+                ]
+            )
+            if extracted_sources
+            else ""
+        )
+
+        sources_text = f"\n\nSources:\n{sources_list}" if sources_list else ""
+
         prompt = ChatPromptTemplate.from_template(
-            f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: The paragraph must help answer the user's original research question. Focus on information relevant to their specific inquiry.\Summarize length: approximately {char_limit} characters.\nSummarize the following search results for keyword '{{kw}}': {{result}}"
+            f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: The paragraph must help answer the user's original research question. Focus on information relevant to their specific inquiry.\n\\Summarize length: approximately {char_limit} characters.\n\\Summarize the following search results for keyword '{{kw}}': {{result}}{sources_text}"
         )
         chain = prompt | llm_instances["multi_search"] | StrOutputParser()
 
@@ -295,7 +373,15 @@ def multi_search_node(state: ResearchState):
         logger.info(f"Generated summary for '{kw}': {len(summary)} characters")
         logger.debug(f"Summary output for '{kw}': {summary}")
         summaries.append(summary)
-        multi_search_outputs.append({"keyword": kw, "summary": summary})
+        multi_search_outputs.append(
+            {
+                "keyword": kw,
+                "summary": summary,
+                "sources": extracted_sources,
+            }
+        )
+
+        keyword_search_sources[kw] = extracted_sources
 
     logger.info(f"Multi-search completed. Generated {len(summaries)} summaries")
 
@@ -304,7 +390,11 @@ def multi_search_node(state: ResearchState):
         multi_search_outputs
     )
 
-    return {"summaries": summaries, "llm_outputs": llm_outputs}
+    return {
+        "summaries": summaries,
+        "llm_outputs": llm_outputs,
+        "keyword_search_sources": keyword_search_sources,
+    }
 
 
 def check_gaps_node(state: ResearchState):
@@ -352,8 +442,34 @@ def synthesize_node(state: ResearchState):
 
     char_limit = state.get("char_limits", {}).get("final_report", 2000)
 
+    all_sources = []
+    background_sources = state.get("background_sources", [])
+    all_sources.extend(background_sources)
+
+    keyword_search_sources = state.get("keyword_search_sources", {})
+    for keyword, sources in keyword_search_sources.items():
+        all_sources.extend(sources)
+
+    unique_sources = {}
+    for source in all_sources:
+        url = source["url"]
+        if url not in unique_sources:
+            unique_sources[url] = source
+
+    sources_text = (
+        "\n\n## Sources\n\n"
+        + "\n".join(
+            [
+                f"- [{source['title']}]({source['url']})"
+                for source in unique_sources.values()
+            ]
+        )
+        if unique_sources
+        else ""
+    )
+
     prompt = ChatPromptTemplate.from_template(
-        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure final report comprehensively answers user's original research question. Conclude by summarizing how report addresses their specific inquiry.\Summarize length: approximately {char_limit} characters.\nSynthesize these summaries into a comprehensive report for the query: {{query}}\nSummaries: {{summaries}}"
+        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure final report comprehensively answers user's original research question. Conclude by summarizing how report addresses their specific inquiry.\n💡 CRITICAL: You MUST include a 'Sources' section at the end of your report with all the reference URLs provided below. This section should list all sources used in your research.\n\\Summarize length: approximately {char_limit} characters.\n\\Synthesize these summaries into a comprehensive report for the query: {{query}}\n\\Summaries: {{summaries}}{sources_text}"
     )
     chain = prompt | llm_instances["synthesize"] | StrOutputParser()
 
@@ -363,7 +479,10 @@ def synthesize_node(state: ResearchState):
     logger.debug(f"Final report output: {report}")
 
     llm_outputs = state.get("llm_outputs", {})
-    llm_outputs["synthesize"] = report
+    llm_outputs["synthesize"] = {
+        "report": report,
+        "sources": list(unique_sources.values()),
+    }
 
     return {"final_report": report, "llm_outputs": llm_outputs}
 
@@ -380,13 +499,24 @@ def generate_html_node(state: ResearchState):
     def escape_js_string(text):
         if not text:
             return ""
-        text = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+        text = text.replace("\\", "\\\\")
+        text = text.replace("\n", "\\n")
+        text = text.replace("\r", "\\r")
+        text = text.replace("\t", "\\t")
+        text = text.replace('"', '\\"')
+        text = text.replace("'", "\\'")
+        text = text.replace("`", "\\`")
+        text = text.replace("$", "\\$")
         return text
 
     content_data = {}
 
     if "background_search" in llm_outputs:
-        content_data["background"] = escape_js_string(llm_outputs["background_search"])
+        bg_data = llm_outputs["background_search"]
+        if isinstance(bg_data, dict):
+            content_data["background"] = escape_js_string(bg_data.get("summary", ""))
+        else:
+            content_data["background"] = escape_js_string(bg_data)
 
     iterations = set()
     for key in llm_outputs.keys():
@@ -399,9 +529,9 @@ def generate_html_node(state: ResearchState):
                 content_data["keywords"][iteration] = {"keywords": []}
             for k, v in llm_outputs.items():
                 if k == f"generate_keywords_iteration_{iteration}":
-                    content_data["keywords"][iteration]["keywords"] = v.get(
-                        "parsed_keywords", []
-                    )
+                    content_data["keywords"][iteration]["keywords"] = [
+                        escape_js_string(kw) for kw in v.get("parsed_keywords", [])
+                    ]
 
     for key, value in llm_outputs.items():
         if key.startswith("multi_search_iteration_"):
@@ -410,7 +540,7 @@ def generate_html_node(state: ResearchState):
                 content_data["summaries"] = {}
             content_data["summaries"][iteration] = [
                 {
-                    "keyword": item["keyword"],
+                    "keyword": escape_js_string(item["keyword"]),
                     "summary": escape_js_string(item["summary"]),
                 }
                 for item in value
@@ -427,7 +557,35 @@ def generate_html_node(state: ResearchState):
             }
 
     if "synthesize" in llm_outputs:
-        content_data["final"] = escape_js_string(llm_outputs["synthesize"])
+        synthesize_data = llm_outputs["synthesize"]
+        if isinstance(synthesize_data, dict):
+            content_data["final"] = escape_js_string(synthesize_data.get("report", ""))
+            content_data["sources"] = [
+                {
+                    "url": escape_js_string(source.get("url", "")),
+                    "title": escape_js_string(source.get("title", "")),
+                }
+                for source in synthesize_data.get("sources", [])
+            ]
+        else:
+            content_data["final"] = escape_js_string(synthesize_data)
+            content_data["sources"] = []
+
+    if "background_search" in llm_outputs:
+        bg_data = llm_outputs["background_search"]
+        if isinstance(bg_data, dict) and "sources" in bg_data:
+            if "sources" not in content_data:
+                content_data["sources"] = []
+            seen_urls = {s.get("url") for s in content_data["sources"] if "url" in s}
+            for source in bg_data["sources"]:
+                if "url" in source and source["url"] not in seen_urls:
+                    content_data["sources"].append(
+                        {
+                            "url": escape_js_string(source.get("url", "")),
+                            "title": escape_js_string(source.get("title", "")),
+                        }
+                    )
+                    seen_urls.add(source["url"])
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -872,6 +1030,49 @@ def generate_html_node(state: ResearchState):
             background: var(--bg-tertiary);
         }}
 
+        .section ul {{
+            list-style-type: none;
+            padding-left: 0;
+        }}
+
+        .section ul li {{
+            margin-bottom: 10px;
+        }}
+
+        .section ul li a {{
+            color: var(--accent-purple);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s ease;
+            display: inline-block;
+        }}
+
+        .section ul li a:hover {{
+            color: var(--accent-violet);
+            text-decoration: underline;
+        }}
+
+        .section-divider {{
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--primary-gradient), transparent);
+            border-radius: 2px;
+            margin: 50px 0;
+            position: relative;
+        }}
+
+        .section-divider::before {{
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 100px;
+            height: 3px;
+            background: white;
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(124, 58, 237, 0.5);
+        }}
+
         @media (max-width: 768px) {{
             body {{
                 padding: 10px;
@@ -1161,6 +1362,7 @@ def generate_html_node(state: ResearchState):
                     <li><a href="#summaries" class="nav-link" data-section="summaries"><span>📋 Summaries</span></a></li>
                     <li><a href="#gaps" class="nav-link" data-section="gaps"><span>🔎 Gap Analysis</span></a></li>
                     <li><a href="#final" class="nav-link" data-section="final"><span>📝 Final Report</span></a></li>
+                    <li><a href="#sources" class="nav-link" data-section="sources"><span>📚 Sources</span></a></li>
                 </ul>
             </div>
         </nav>
@@ -1179,6 +1381,12 @@ def generate_html_node(state: ResearchState):
             const contentEl = document.getElementById('content');
             contentEl.innerHTML = '';
 
+            function addDivider() {{
+                const divider = document.createElement('div');
+                divider.className = 'section-divider';
+                contentEl.appendChild(divider);
+            }}
+
             if (contentData.background) {{
                 const section = document.createElement('div');
                 section.className = 'section';
@@ -1188,6 +1396,7 @@ def generate_html_node(state: ResearchState):
                     <div class="markdown-content">${{marked.parse(contentData.background)}}</div>
                 `;
                 contentEl.appendChild(section);
+                addDivider();
             }}
 
             const sortedIterations = Array.from(new Set([
@@ -1195,6 +1404,8 @@ def generate_html_node(state: ResearchState):
                 ...Object.keys(contentData.summaries || {{}}),
                 ...Object.keys(contentData.gaps || {{}})
             ])).sort((a, b) => parseInt(a) - parseInt(b));
+
+            const lastIteration = sortedIterations.length > 0 ? sortedIterations[sortedIterations.length - 1] : null;
 
             sortedIterations.forEach(iteration => {{
                 if (contentData.keywords && contentData.keywords[iteration]) {{
@@ -1210,6 +1421,9 @@ def generate_html_node(state: ResearchState):
                         <div class="keywords">${{keywords}}</div>
                     `;
                     contentEl.appendChild(section);
+                    if (iteration === lastIteration) {{
+                        addDivider();
+                    }}
                 }}
             }});
 
@@ -1228,6 +1442,9 @@ def generate_html_node(state: ResearchState):
                         ${{summaries}}
                     `;
                     contentEl.appendChild(section);
+                    if (iteration === lastIteration) {{
+                        addDivider();
+                    }}
                 }}
             }});
 
@@ -1245,6 +1462,9 @@ def generate_html_node(state: ResearchState):
                         <div class="markdown-content">${{marked.parse(gap.raw_output)}}</div>
                     `;
                     contentEl.appendChild(section);
+                    if (iteration === lastIteration) {{
+                        addDivider();
+                    }}
                 }}
             }});
 
@@ -1255,6 +1475,23 @@ def generate_html_node(state: ResearchState):
                 section.innerHTML = `
                     <h2>📝 Final Report</h2>
                     <div class="markdown-content">${{marked.parse(contentData.final)}}</div>
+                `;
+                contentEl.appendChild(section);
+                addDivider();
+            }}
+
+            if (contentData.sources && contentData.sources.length > 0) {{
+                const section = document.createElement('div');
+                section.className = 'section';
+                section.id = 'sources';
+                const sourcesList = contentData.sources.map(source =>
+                    `<li><a href="${{source.url}}" target="_blank" rel="noopener noreferrer">${{source.title || source.url}}</a></li>`
+                ).join('');
+                section.innerHTML = `
+                    <h2>📚 Sources</h2>
+                    <ul style="list-style-type: none; padding-left: 0;">
+                        ${{sourcesList}}
+                    </ul>
                 `;
                 contentEl.appendChild(section);
             }}
@@ -1430,6 +1667,8 @@ def run_research_agent(
         "llm_outputs": {},
         "html_report": "",
         "char_limits": char_limits,
+        "background_sources": [],
+        "keyword_search_sources": {},
     }
 
     logger.debug("Initial state prepared, starting graph execution")
