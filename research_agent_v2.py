@@ -1,3 +1,11 @@
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="Field name.*shadows an attribute in parent.*",
+    category=UserWarning,
+)
+
 import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -14,7 +22,6 @@ import logging
 import json
 import re
 import argparse
-import warnings
 from pathlib import Path
 from pydantic import BaseModel, Field
 
@@ -22,13 +29,6 @@ from config import load_model_config
 from llm_factory import create_llm_instances
 
 load_dotenv()
-
-# Suppress pydantic UserWarning about field name shadowing
-warnings.filterwarnings(
-    "ignore",
-    message="Field name.*shadows an attribute in parent.*",
-    category=UserWarning,
-)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,6 +90,7 @@ class ResearchState(TypedDict):
     lang: str
     llm_outputs: dict
     html_report: str
+    char_limits: dict
 
 
 # Define tools
@@ -98,7 +99,7 @@ def web_search(query: str) -> str:
     """Search the web for information related to the query."""
     search = TavilySearch(max_results=5)
     results = search.invoke({"query": query})
-    return str(results)
+    return json.dumps(results) if isinstance(results, dict) else str(results)
 
 
 @tool
@@ -135,10 +136,13 @@ def background_search_node(state: ResearchState):
         state["current_time"], state["lang"]
     )
 
+    char_limit = state.get("char_limits", {}).get("background", 300)
+
     prompt = ChatPromptTemplate.from_template(
         f"{time_instruction}\n"
         f"🎯 USER'S ORIGINAL REQUEST: {state['original_query']}\n"
         f"💡 IMPORTANT: The background summary should provide essential context and foundational knowledge about the topic.\n"
+        f"Summarize length: approximately {char_limit} characters.\n"
         f"Summarize the following search results for the query '{{query}}' into a comprehensive background summary:\n"
         f"{{search_results}}"
     )
@@ -270,6 +274,8 @@ def multi_search_node(state: ResearchState):
 
     logger.info(f"Starting multi-search for {len(keywords)} keywords: {keywords}")
 
+    char_limit = state.get("char_limits", {}).get("keyword_summary", 500)
+
     multi_search_outputs = []
     for idx, kw in enumerate(keywords, 1):
         logger.info(f"Processing keyword {idx}/{len(keywords)}: {kw}")
@@ -280,7 +286,7 @@ def multi_search_node(state: ResearchState):
         logger.debug(f"Search results for '{kw}': {len(str(result))} characters")
 
         prompt = ChatPromptTemplate.from_template(
-            f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: The paragraph must help answer the user's original research question. Focus on information relevant to their specific inquiry.\nSummarize the following search results for keyword '{{kw}}': {{result}}"
+            f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: The paragraph must help answer the user's original research question. Focus on information relevant to their specific inquiry.\Summarize length: approximately {char_limit} characters.\nSummarize the following search results for keyword '{{kw}}': {{result}}"
         )
         chain = prompt | llm_instances["multi_search"] | StrOutputParser()
 
@@ -344,8 +350,10 @@ def synthesize_node(state: ResearchState):
         f"Total summary content length: {sum(len(s) for s in summaries)} characters"
     )
 
+    char_limit = state.get("char_limits", {}).get("final_report", 2000)
+
     prompt = ChatPromptTemplate.from_template(
-        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure final report comprehensively answers user's original research question. Conclude by summarizing how report addresses their specific inquiry.\nSynthesize these summaries into a comprehensive report for the query: {{query}}\nSummaries: {{summaries}}"
+        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Ensure final report comprehensively answers user's original research question. Conclude by summarizing how report addresses their specific inquiry.\Summarize length: approximately {char_limit} characters.\nSynthesize these summaries into a comprehensive report for the query: {{query}}\nSummaries: {{summaries}}"
     )
     chain = prompt | llm_instances["synthesize"] | StrOutputParser()
 
@@ -1391,11 +1399,16 @@ graph = builder.compile()
 
 
 # Function to run the agent
-def run_research_agent(query: str, max_iterations: int = 3, lang: str = "en"):
+def run_research_agent(
+    query: str, max_iterations: int = 3, lang: str = "en", char_limits: dict = None
+):
     logger.info("=" * 50)
     logger.info(f"RESEARCH AGENT STARTED")
     logger.info(f"Query: {query}")
     logger.info("=" * 50)
+
+    if char_limits is None:
+        char_limits = {"background": 300, "keyword_summary": 500, "final_report": 2000}
 
     current_time = get_current_time()
     logger.info(f"Current time: {current_time}")
@@ -1416,6 +1429,7 @@ def run_research_agent(query: str, max_iterations: int = 3, lang: str = "en"):
         "lang": lang,
         "llm_outputs": {},
         "html_report": "",
+        "char_limits": char_limits,
     }
 
     logger.debug("Initial state prepared, starting graph execution")
@@ -1469,6 +1483,25 @@ if __name__ == "__main__":
         type=int,
         default=3,
         help="Maximum number of research iterations",
+    )
+
+    parser.add_argument(
+        "--limit-background",
+        type=int,
+        default=None,
+        help="Target character limit for background summary (default: 300)",
+    )
+    parser.add_argument(
+        "--limit-keyword",
+        type=int,
+        default=None,
+        help="Target character limit for keyword summaries (default: 500)",
+    )
+    parser.add_argument(
+        "--limit-final",
+        type=int,
+        default=None,
+        help="Target character limit for final report (default: 2000)",
     )
 
     # Global model configuration
@@ -1646,10 +1679,24 @@ if __name__ == "__main__":
             args.base_url_synthesize
         )
 
+    cli_limits = {}
+    if args.limit_background is not None:
+        cli_limits["background"] = args.limit_background
+    if args.limit_keyword is not None:
+        cli_limits["keyword"] = args.limit_keyword
+    if args.limit_final is not None:
+        cli_limits["final"] = args.limit_final
+
     # Initialize LLM instances with configuration
-    model_config = load_model_config(cli_overrides)
+    model_config = load_model_config(cli_overrides, cli_limits)
     llm_instances_global = create_llm_instances(model_config)
     llm_instances.update(llm_instances_global)
+
+    char_limits = {
+        "background": model_config.char_limits.background,
+        "keyword_summary": model_config.char_limits.keyword_summary,
+        "final_report": model_config.char_limits.final_report,
+    }
 
     # Generate output filename if not provided
     output_file = args.output
@@ -1672,7 +1719,10 @@ if __name__ == "__main__":
 
     try:
         report = run_research_agent(
-            args.query, max_iterations=args.max_iterations, lang=args.lang
+            args.query,
+            max_iterations=args.max_iterations,
+            lang=args.lang,
+            char_limits=char_limits,
         )
     except Exception as e:
         logger.error(f"Research agent failed: {e}", exc_info=True)

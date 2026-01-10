@@ -51,6 +51,28 @@ OPENAI_BASE_URL=https://api.minimax.chat/v1
 MODEL_NAME=minimaxai/minimax-m2.1
 ```
 
+### Character Limits Configuration
+
+控制不同研究阶段的最大字符数以优化性能和成本。
+
+**环境变量配置：**
+
+```env
+# 背景搜索摘要字符限制（默认：300）
+LIMIT_BACKGROUND=300
+
+# 关键词搜索摘要字符限制（默认：500）
+LIMIT_KEYWORD=500
+
+# 最终报告字符限制（默认：2000）
+LIMIT_FINAL=2000
+```
+
+**使用场景：**
+- `LIMIT_BACKGROUND`：快速获取主题背景信息，建议保持较低值（200-500）
+- `LIMIT_KEYWORD`：每个关键词的摘要长度，平衡细节与成本（300-800）
+- `LIMIT_FINAL`：综合报告长度，根据需求调整（1500-5000）
+
 ### Per-Node Model Configuration (Advanced)
 
 每个研究代理节点可以配置不同的模型，以充分利用不同模型的能力。
@@ -129,6 +151,39 @@ uv run python research_agent.py "AI安全发展" -o report.md
 uv run python research_agent.py "AI安全" --max-iterations 5
 ```
 
+### 自定义字符限制
+
+通过`.env`文件设置（推荐用于持久配置）：
+
+```env
+# 背景摘要字符数
+LIMIT_BACKGROUND=300
+
+# 关键词摘要字符数
+LIMIT_KEYWORD=500
+
+# 最终报告字符数
+LIMIT_FINAL=2000
+```
+
+通过命令行参数设置（临时覆盖）：
+
+```bash
+# 设置所有字符限制
+uv run python research_agent.py "AI安全" \
+  --limit-background 400 \
+  --limit-keyword 600 \
+  --limit-final 3000
+
+# 单独设置某个限制
+uv run python research_agent.py "AI安全" --limit-final 3000
+```
+
+**配置优先级：**
+1. 命令行参数（最高优先级）
+2. 环境变量（`.env`文件）
+3. 默认值（最低优先级）
+
 ### 输出格式
 
 ```bash
@@ -168,6 +223,34 @@ uv run python research_agent.py "AI安全发展"
 ```bash
 # 使用中文提示语言
 uv run python research_agent.py "AI安全" --lang zh
+```
+
+### 字符限制建议
+
+根据研究需求选择合适的字符限制：
+
+**快速调研模式（节省成本）：**
+```bash
+uv run python research_agent.py "AI安全" \
+  --limit-background 200 \
+  --limit-keyword 300 \
+  --limit-final 1500
+```
+
+**标准调研模式（平衡）：**
+```bash
+uv run python research_agent.py "AI安全" \
+  --limit-background 300 \
+  --limit-keyword 500 \
+  --limit-final 2000
+```
+
+**深度调研模式（详细报告）：**
+```bash
+uv run python research_agent.py "AI安全" \
+  --limit-background 400 \
+  --limit-keyword 800 \
+  --limit-final 5000
 ```
 
 ### 查看所有选项
