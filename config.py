@@ -30,12 +30,12 @@ class NodeModelConfig:
 
 class ModelConfig:
     NODE_NAMES = [
+        "clarify_query",
         "background_search",
         "generate_keywords",
         "multi_search",
         "check_gaps",
         "synthesize",
-        "analyze_query",
     ]
 
     def _load_character_limits(self, cli_limits: Dict[str, int]) -> CharacterLimits:

@@ -699,20 +699,6 @@ Examples where clarification is NOT needed:
     logger.info(f"Reasoning: {reasoning}")
     logger.info(f"Generated {len(questions)} clarification questions: {questions}")
 
-    if clarification_needed and questions:
-        logger.info("\n" + "=" * 60)
-        logger.info("CLARIFICATION NEEDED")
-        logger.info("=" * 60)
-        logger.info(
-            "\nTo conduct more accurate and targeted research, please clarify:\n"
-        )
-        for idx, question in enumerate(questions, 1):
-            logger.info(f"{idx}. {question}")
-        logger.info("\n" + "=" * 60)
-        logger.info("Current research will proceed with the original query.")
-        logger.info("Please provide context in future queries for better results.")
-        logger.info("=" * 60 + "\n")
-
     llm_outputs = state.get("llm_outputs", {})
     llm_outputs["clarify_query"] = {
         "raw_output": llm_output,
@@ -727,6 +713,62 @@ Examples where clarification is NOT needed:
         "clarification_questions": questions,
         "llm_outputs": llm_outputs,
     }
+
+
+def collect_user_response_node(state: ResearchState):
+    logger.info("=== COLLECT USER RESPONSE NODE STARTED ===")
+    questions = state["clarification_questions"]
+    original_query = state["original_query"]
+    lang = state["lang"]
+
+    if not questions:
+        logger.info(
+            "No clarification questions to ask. Proceeding with original query."
+        )
+        return {"user_provided_context": ""}
+
+    logger.info("Waiting for user to provide clarification answers...")
+
+    print("\n" + "=" * 60)
+    print("CLARIFICATION NEEDED")
+    print("=" * 60)
+    print("\nTo conduct more accurate and targeted research, please clarify:\n")
+
+    user_answers = []
+    for idx, question in enumerate(questions, 1):
+        print(f"{idx}. {question}")
+        answer = input(f"   Your answer (press Enter to skip): ").strip()
+        if answer:
+            user_answers.append(f"Q{idx}. {question}\nA{idx}. {answer}")
+
+    print("\n" + "=" * 60)
+    print("Proceeding with research...")
+    print("=" * 60 + "\n")
+
+    if user_answers:
+        user_provided_context = "\n\n".join(user_answers)
+        logger.info(f"Collected {len(user_answers)} clarification answers")
+
+        clarifications_text = " ".join(
+            [f"({ans.split('A')[1].strip()})" for ans in user_answers]
+        )
+        enhanced_query = f"{original_query} {clarifications_text}"
+        logger.info(f"Enhanced query: {enhanced_query}")
+
+        llm_outputs = state.get("llm_outputs", {})
+        llm_outputs["collect_user_response"] = {
+            "answers": user_answers,
+            "enhanced_query": enhanced_query,
+        }
+
+        return {
+            "user_provided_context": user_provided_context,
+            "query": enhanced_query,
+            "llm_outputs": llm_outputs,
+        }
+    else:
+        logger.info("No answers provided by user. Proceeding with original query.")
+        return {"user_provided_context": ""}
 
 
 def synthesize_node(state: ResearchState):
@@ -2066,24 +2108,6 @@ def generate_html_node(state: ResearchState):
     return {"html_report": html_content}
 
 
-# Build the graph
-builder = StateGraph(ResearchState)
-builder.add_node("clarify_query", clarify_query_node)
-builder.add_node("background_search", background_search_node)
-builder.add_node("generate_keywords", generate_keywords_node)
-builder.add_node("multi_search", multi_search_node)
-builder.add_node("check_gaps", check_gaps_node)
-builder.add_node("synthesize", synthesize_node)
-builder.add_node("generate_html", generate_html_node)
-
-builder.add_edge(START, "clarify_query")
-builder.add_edge("clarify_query", "background_search")
-builder.add_edge("background_search", "generate_keywords")
-builder.add_edge("generate_keywords", "multi_search")
-builder.add_edge("multi_search", "check_gaps")
-
-
-# Conditional edge: if gaps_found, loop back to generate_keywords; else to synthesize
 def route_after_check(state: ResearchState):
     gaps_found = state["gaps_found"]
     iteration = state["iteration"]
@@ -2102,6 +2126,32 @@ def route_after_check(state: ResearchState):
     return next_node
 
 
+def route_after_clarify(state: ResearchState):
+    clarification_needed = state["clarification_needed"]
+    next_node = "collect_user_response" if clarification_needed else "background_search"
+    logger.info(
+        f"Routing decision: Clarification needed = {clarification_needed}, Next node = {next_node}"
+    )
+    return next_node
+
+
+# Build the graph
+builder = StateGraph(ResearchState)
+builder.add_node("clarify_query", clarify_query_node)
+builder.add_node("background_search", background_search_node)
+builder.add_node("generate_keywords", generate_keywords_node)
+builder.add_node("multi_search", multi_search_node)
+builder.add_node("check_gaps", check_gaps_node)
+builder.add_node("synthesize", synthesize_node)
+builder.add_node("generate_html", generate_html_node)
+builder.add_node("collect_user_response", collect_user_response_node)
+
+builder.add_edge(START, "clarify_query")
+builder.add_conditional_edges("clarify_query", route_after_clarify)
+builder.add_edge("collect_user_response", "background_search")
+builder.add_edge("background_search", "generate_keywords")
+builder.add_edge("generate_keywords", "multi_search")
+builder.add_edge("multi_search", "check_gaps")
 builder.add_conditional_edges("check_gaps", route_after_check)
 builder.add_edge("synthesize", "generate_html")
 builder.add_edge("generate_html", END)
