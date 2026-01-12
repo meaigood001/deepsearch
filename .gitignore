@@ -37,6 +37,9 @@ Thumbs.db
 *.log
 logs/
 
+# Output directories
+output/
+
 # Coverage reports
 .coverage
 htmlcov/

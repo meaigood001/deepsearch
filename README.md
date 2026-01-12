@@ -1,4 +1,107 @@
-# Depth Research Agent
+# Deep Research Agent
+
+A LangGraph-based deep research AI agent with elegant web UI.
+
+## Features
+
+### CLI Input
+- Command-line parameter for specifying research question
+- Multiple output formats: Markdown, JSON, TXT, HTML
+- Configurable research parameters (iterations, language, character limits, model)
+
+### Web Interface (NEW)
+- **Elegant Streamlit UI**: Real-time progress tracking, responsive design
+- Multi-language support (English/Chinese prompts)
+- Step-by-step research visualization
+- Configurable settings sidebar
+- Export functionality with timestamps
+
+## Quick Start
+
+### Installation
+
+Dependencies are already included in `pyproject.toml`. Just run:
+
+```bash
+# Install dependencies (if needed)
+uv sync
+# Start web UI
+uv run streamlit run web_ui.py
+```
+
+The UI will open at `http://localhost:8501` automatically.
+
+## Configuration Options
+
+### Research Parameters
+
+| Setting | Description | Default |
+|----------|-------------|----------|
+| Max Iterations | Maximum research iterations | 3 |
+| Language | Prompt language (en/zh) | English |
+| Background Summary Chars | 300 | Max chars for background | 300 |
+| Keyword Summary Chars | 500 | Max chars per keyword | 500 |
+| Final Report Chars | 2000 | Max chars for final report | 2000 |
+
+### UI Components
+
+| Component | Description |
+|-----------|-------------|----------|
+| **Sidebar Config** | All settings in one place |
+| **Query Input** | Large text area with placeholder |
+| **Progress Bar** | Purple gradient with percentage |
+| **Live Status** | Real-time execution feedback |
+| **Results Display** | Background, keywords, summaries, gaps, final report |
+| **Sources List** | Deduplicated, clickable |
+| **Download Button** | Export with timestamp |
+
+### Troubleshooting
+
+#### "Missing API Key" Error
+
+Ensure `.env` file contains:
+```env
+OPENAI_API_KEY=your_api_key_here
+TAVILY_API_KEY=your_tavily_key_here
+OPENAI_BASE_URL=https://api.minimax.chat/v1
+MODEL_NAME=minimaxai/minimax-m2.1
+```
+
+### Import Errors
+
+If you see import errors, run:
+```bash
+uv sync
+```
+
+### Deployment
+
+For production deployment, consider:
+1. **Reverse proxy**: Add nginx/caddy for SSL
+2. **Load balancing**: Configure for concurrent users
+3. **Data persistence**: SQLite for session storage
+4. **Caching**: Redis for fast result caching
+
+## Development Notes
+
+The implementation follows this structure:
+```
+deepsearch/
+├── research_agent_v4.py      # Core research agent logic
+├── config.py                   # Model configuration
+├── llm_factory.py              # LLM factory
+├── web_ui.py                   # NEW: Streamlit web interface
+└── WEB_UI_README.md          # Web UI documentation
+```
+
+### Adding New Features
+
+The `web_ui.py` structure:
+```python
+def sidebar_config() -> Dict:
+    """Render sidebar configuration and return config dict."""
+    ...
+```
 
 一个基于LangGraph的深度调研AI代理，支持多轮搜索、关键词生成和缺口分析。
 
