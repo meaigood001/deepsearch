@@ -1,13 +1,8 @@
-"""
-Streamlit Web UI for Deep Research Agent
-"""
-
 import os
 import logging
 from typing import Dict
 
 import streamlit as st
-
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -50,9 +45,6 @@ st.markdown(
         margin: 1rem 0;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .css-1d391kg {
-        background: linear-gradient(180deg, #5B21B6 0%, #7C3AED 100%);
-    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -60,9 +52,7 @@ st.markdown(
 
 
 def sidebar_config() -> Dict:
-    """Render sidebar configuration and return config dict."""
     st.sidebar.title("⚙️ Configuration")
-
     st.sidebar.subheader("🔬 Research Parameters")
 
     max_iterations = st.sidebar.slider(
@@ -79,11 +69,9 @@ def sidebar_config() -> Dict:
         limit_background = st.number_input(
             "Background Summary", value=300, min_value=100, max_value=2000, step=50
         )
-
         limit_keyword = st.number_input(
             "Keyword Summary", value=500, min_value=200, max_value=3000, step=100
         )
-
         limit_final = st.number_input(
             "Final Report", value=2000, min_value=500, max_value=10000, step=500
         )
@@ -99,20 +87,73 @@ def sidebar_config() -> Dict:
     }
 
 
+def display_results(result):
+    if not result:
+        return
+
+    if result.get("background"):
+        st.subheader("🔍 Background Research")
+        st.markdown(result["background"])
+
+    if result.get("keyword_history"):
+        st.subheader("🎯 Search Keywords Used")
+        keywords = result["keyword_history"]
+        cols = st.columns(5)
+        for idx, kw in enumerate(keywords):
+            with cols[idx % 5]:
+                st.markdown(
+                    f'<span style="background: linear-gradient(90deg, #5B21B6, #7C3AED); color: white; padding: 8px 16px; border-radius: 20px; display: inline-block; margin: 4px 0;">{kw}</span>',
+                    unsafe_allow_html=True,
+                )
+
+    if result.get("summaries"):
+        st.subheader("📋 Search Summaries")
+        llm_outputs = result.get("llm_outputs", {})
+        for key in list(llm_outputs.keys()):
+            if key.startswith("multi_search_iteration_"):
+                iteration_data = llm_outputs[key]
+                st.markdown(f"**Iteration {key.split('_')[-1]}:**")
+                for item in iteration_data:
+                    with st.expander(
+                        f"🔎 {item.get('keyword', 'Unknown')}",
+                        expanded=False,
+                    ):
+                        st.markdown(item.get("summary", ""))
+
+    if result.get("gaps_found") is not None:
+        gap_status = "⚠️ Gaps detected" if result["gaps_found"] else "✅ No gaps found"
+        st.markdown(
+            f'<div class="info-box"><strong>Gap Analysis:</strong> {gap_status}</div>',
+            unsafe_allow_html=True,
+        )
+
+    if result.get("final_report"):
+        st.subheader("📝 Final Report")
+        st.markdown(result["final_report"])
+
+        st.download_button(
+            label="💾 Download Report",
+            data=result["final_report"],
+            file_name="research_report.md",
+            mime="text/markdown",
+        )
+
+
 def main():
-    """Main Streamlit application."""
     st.title("🔍 Deep Research Agent")
     st.markdown(
-        """
-    <div class="info-box">
-        <p><strong>Welcome!</strong> Ask any research question and get a comprehensive,
-        multi-source analysis with real-time progress tracking.</p>
-    </div>
-    """,
+        '<div class="info-box"><p><strong>Welcome!</strong> Ask any research question and get a comprehensive, multi-source analysis with real-time progress tracking.</p></div>',
         unsafe_allow_html=True,
     )
 
     config = sidebar_config()
+
+    if "research_stage" not in st.session_state:
+        st.session_state.research_stage = "idle"
+    if "current_result" not in st.session_state:
+        st.session_state.current_result = None
+    if "last_query" not in st.session_state:
+        st.session_state.last_query = ""
 
     st.subheader("📝 Your Research Question")
 
@@ -123,11 +164,23 @@ def main():
         label_visibility="collapsed",
     )
 
+    if query != st.session_state.last_query:
+        st.session_state.research_stage = "idle"
+        st.session_state.current_result = None
+        st.session_state.last_query = query
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        run_button = st.button(
-            "🚀 Start Research", type="primary", use_container_width=True
-        )
+        if st.session_state.research_stage == "idle":
+            run_button = st.button(
+                "🚀 Start Research", type="primary", use_container_width=True
+            )
+        else:
+            if st.button("🔄 Reset", use_container_width=True):
+                st.session_state.research_stage = "idle"
+                st.session_state.current_result = None
+                st.rerun()
+            run_button = False
 
     if not os.getenv("OPENAI_API_KEY"):
         st.error(
@@ -143,97 +196,84 @@ def main():
     if run_button and query:
         if not query.strip():
             st.error("❌ Please enter a research question.")
-            return
+        else:
+            with st.status("🚀 Running Research...", expanded=True) as status:
+                st.write("📊 Initializing...")
+                try:
+                    from research_agent_v4 import run_research_agent
 
-        progress_container = st.container()
-        results_container = st.container()
+                    st.write("🔎 Analyzing query for clarification...")
+                    result = run_research_agent(
+                        query=query,
+                        max_iterations=config["max_iterations"],
+                        lang=config["lang"],
+                        char_limits=config["char_limits"],
+                        allow_console_input=False,
+                    )
 
-        with progress_container:
-            st.info("🔄 Research in progress...")
-            progress_bar = st.progress(0, text="Initializing...")
-            status_text = st.empty()
+                    st.session_state.current_result = result
+                    if result and result.get("clarification_needed"):
+                        st.session_state.research_stage = "clarifying"
+                        status.update(label="❓ Clarification Needed", state="complete")
+                    else:
+                        st.session_state.research_stage = "completed"
+                        status.update(label="✅ Research Completed", state="complete")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    logger.error(f"Research error: {e}", exc_info=True)
 
-            status_text.text("📊 Loading...")
-            progress_bar.progress(10, text="Config loaded")
+    if st.session_state.research_stage == "clarifying":
+        result = st.session_state.current_result
+        if result:
+            questions = result.get("clarification_questions", [])
 
-            try:
-                from research_agent_v4 import run_research_agent
+            st.markdown("---")
+            st.subheader("❓ Clarification Needed")
+            st.info("To conduct more accurate research, please answer the following:")
 
-                status_text.text("🚀 Starting research...")
-                progress_bar.progress(20, text="Research started")
+            with st.form("clarification_form"):
+                user_answers = {}
+                for idx, q in enumerate(questions, 1):
+                    user_answers[str(idx)] = st.text_input(
+                        f"Q{idx}: {q}", key=f"q_{idx}"
+                    )
 
-                result = run_research_agent(
-                    query=query,
-                    max_iterations=config["max_iterations"],
-                    lang=config["lang"],
-                    char_limits=config["char_limits"],
-                )
+                if st.form_submit_button("🚀 Continue Research", type="primary"):
+                    with st.status(
+                        "🔄 Continuing Research...", expanded=True
+                    ) as status:
+                        try:
+                            from research_agent_v4 import run_research_agent
 
-                progress_bar.progress(100, text="Research completed!")
-                status_text.success("✅ Research completed successfully!")
+                            st.write("Processing clarifications and searching...")
 
-                with results_container:
-                    st.markdown("---")
+                            final_result = run_research_agent(
+                                query=query,
+                                max_iterations=config["max_iterations"],
+                                lang=config["lang"],
+                                char_limits=config["char_limits"],
+                                user_answers=user_answers,
+                                allow_console_input=False,
+                            )
+                            st.session_state.current_result = final_result
+                            st.session_state.research_stage = "completed"
+                            status.update(
+                                label="✅ Research Completed", state="complete"
+                            )
+                            st.rerun()
+                        except Exception as e:
+                            import traceback
 
-                    if result.get("background"):
-                        st.subheader("🔍 Background Research")
-                        st.markdown(result["background"])
+                            error_msg = f"❌ Error: {str(e)}"
+                            st.error(error_msg)
+                            with st.expander("Error Details"):
+                                st.code(traceback.format_exc(), language="python")
+                            logger.error(f"Research error: {e}", exc_info=True)
 
-                    if result.get("keyword_history"):
-                        st.subheader("🎯 Search Keywords Used")
-                        keywords = result["keyword_history"]
-                        cols = st.columns(5)
-                        for idx, kw in enumerate(keywords):
-                            with cols[idx % 5]:
-                                st.markdown(
-                                    f'<span style="background: linear-gradient(90deg, #5B21B6, #7C3AED); color: white; padding: 8px 16px; border-radius: 20px;">{kw}</span>',
-                                    unsafe_allow_html=True,
-                                )
-
-                    if result.get("summaries"):
-                        st.subheader("📋 Search Summaries")
-                        llm_outputs = result.get("llm_outputs", {})
-                        for key in list(llm_outputs.keys()):
-                            if key.startswith("multi_search_iteration_"):
-                                iteration_data = llm_outputs[key]
-                                st.markdown(f"**Iteration {key.split('_')[-1]}:**")
-                                for item in iteration_data:
-                                    with st.expander(
-                                        f"🔎 {item.get('keyword', 'Unknown')}",
-                                        expanded=False,
-                                    ):
-                                        st.markdown(item.get("summary", ""))
-
-                    if result.get("gaps_found") is not None:
-                        gap_status = (
-                            "⚠️ Gaps detected"
-                            if result["gaps_found"]
-                            else "✅ No gaps found"
-                        )
-                        st.markdown(
-                            f"""
-                        <div class="info-box">
-                            <strong>Gap Analysis:</strong> {gap_status}
-                        </div>
-                        """,
-                            unsafe_allow_html=True,
-                        )
-
-                    if result.get("final_report"):
-                        st.subheader("📝 Final Report")
-                        st.markdown(result["final_report"])
-
-                        st.download_button(
-                            label="💾 Download Report",
-                            data=result["final_report"],
-                            file_name=f"research_report.md",
-                            mime="text/markdown",
-                        )
-
-            except Exception as e:
-                error_msg = f"❌ Error during research: {str(e)}"
-                st.error(error_msg)
-                logger.error(f"Research execution error: {e}", exc_info=True)
+    if st.session_state.research_stage == "completed":
+        st.markdown("---")
+        display_results(st.session_state.current_result)
 
 
 if __name__ == "__main__":

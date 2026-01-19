@@ -7,6 +7,7 @@ warnings.filterwarnings(
 )
 
 import os
+import sys
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -252,11 +253,8 @@ class ResearchState(TypedDict):
     user_context: str
     clarification_questions: list
     user_provided_context: str
-    # Clarification fields
-    clarification_needed: bool
-    user_context: str
-    clarification_questions: list
-    user_provided_context: str
+    user_answers: Optional[dict]
+    allow_console_input: bool
 
 
 # Define tools
@@ -874,12 +872,92 @@ def collect_user_response_node(state: ResearchState):
     logger.info("=== COLLECT USER RESPONSE NODE STARTED ===")
     questions = state["clarification_questions"]
     original_query = state["original_query"]
-    lang = state["lang"]
+    pre_provided_answers = state.get("user_answers")
 
     if not questions:
         logger.info(
             "No clarification questions to ask. Proceeding with original query."
         )
+        return {"user_provided_context": ""}
+
+    if pre_provided_answers:
+        logger.info("Using pre-provided user answers from state")
+        user_answers_list = []
+        for idx, question in enumerate(questions, 1):
+            answer = pre_provided_answers.get(str(idx), "")
+            if answer:
+                user_answers_list.append(f"Q{idx}. {question}\nA{idx}. {answer}")
+
+        if user_answers_list:
+            user_provided_context = "\n\n".join(user_answers_list)
+            logger.info(
+                f"Collected {len(user_answers_list)} clarification answers from pre-provided input"
+            )
+
+            clarifications_text = " ".join(
+                [f"({answer})" for answer in pre_provided_answers.values() if answer]
+            )
+            enhanced_query = f"{original_query} {clarifications_text}"
+            logger.info(f"Enhanced query: {enhanced_query}")
+
+            llm_outputs = state.get("llm_outputs", {})
+            llm_outputs["collect_user_response"] = {
+                "answers": user_answers_list,
+                "enhanced_query": enhanced_query,
+            }
+
+            return {
+                "user_provided_context": user_provided_context,
+                "query": enhanced_query,
+                "llm_outputs": llm_outputs,
+            }
+        else:
+            logger.info(
+                "No answers provided in pre-provided input. Proceeding with original query."
+            )
+            return {"user_provided_context": ""}
+
+    logger.info("Waiting for user to provide clarification answers...")
+
+    print("\n" + "=" * 60)
+    print("CLARIFICATION NEEDED")
+    print("=" * 60)
+    print("\nTo conduct more accurate and targeted research, please clarify:\n")
+
+    user_answers = []
+    for idx, question in enumerate(questions, 1):
+        print(f"{idx}. {question}")
+        answer = input("   Your answer (press Enter to skip): ").strip()
+        if answer:
+            user_answers.append(f"Q{idx}. {question}\nA{idx}. {answer}")
+
+    print("\n" + "=" * 60)
+    print("Proceeding with research...")
+    print("=" * 60 + "\n")
+
+    if user_answers:
+        user_provided_context = "\n\n".join(user_answers)
+        logger.info(f"Collected {len(user_answers)} clarification answers")
+
+        clarifications_text = " ".join(
+            [f"({ans.split('A')[1].strip()})" for ans in user_answers]
+        )
+        enhanced_query = f"{original_query} {clarifications_text}"
+        logger.info(f"Enhanced query: {enhanced_query}")
+
+        llm_outputs = state.get("llm_outputs", {})
+        llm_outputs["collect_user_response"] = {
+            "answers": user_answers,
+            "enhanced_query": enhanced_query,
+        }
+
+        return {
+            "user_provided_context": user_provided_context,
+            "query": enhanced_query,
+            "llm_outputs": llm_outputs,
+        }
+    else:
+        logger.info("No answers provided by user. Proceeding with original query.")
         return {"user_provided_context": ""}
 
     logger.info("Waiting for user to provide clarification answers...")
@@ -2283,7 +2361,19 @@ def route_after_check(state: ResearchState):
 
 def route_after_clarify(state: ResearchState):
     clarification_needed = state["clarification_needed"]
-    next_node = "collect_user_response" if clarification_needed else "background_search"
+
+    if clarification_needed:
+        allow_console_input = state.get("allow_console_input", True)
+        if state.get("user_answers") or (allow_console_input and sys.stdin.isatty()):
+            next_node = "collect_user_response"
+        else:
+            next_node = END
+            logger.info(
+                "Clarification needed in Web UI mode. Stopping graph to wait for user input."
+            )
+    else:
+        next_node = "background_search"
+
     logger.info(
         f"Routing decision: Clarification needed = {clarification_needed}, Next node = {next_node}"
     )
@@ -2320,6 +2410,8 @@ def run_research_agent(
     max_iterations: int = 3,
     lang: str = "en",
     char_limits: Optional[Dict[str, int]] = None,
+    user_answers: Optional[Dict[str, str]] = None,
+    allow_console_input: bool = True,
 ):
     global llm_instances
     if not llm_instances:
@@ -2329,8 +2421,10 @@ def run_research_agent(
         logger.info("LLM instances initialized")
 
     logger.info("=" * 50)
-    logger.info(f"RESEARCH AGENT STARTED")
+    logger.info("RESEARCH AGENT STARTED")
     logger.info(f"Query: {query}")
+    logger.info(f"User answers provided: {user_answers is not None}")
+    logger.info(f"Console input allowed: {allow_console_input}")
     logger.info("=" * 50)
 
     if char_limits is None:
@@ -2362,6 +2456,8 @@ def run_research_agent(
         "user_context": "",
         "clarification_questions": [],
         "user_provided_context": "",
+        "user_answers": user_answers,
+        "allow_console_input": allow_console_input,
     }
 
     logger.debug("Initial state prepared, starting graph execution")

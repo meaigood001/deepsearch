@@ -13,3 +13,9 @@ dependencies = [
     "tavily-python>=0.7.17",
     "streamlit>=1.28.0",
 ]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.37.1",
+    "ruff>=0.14.13",
+]
