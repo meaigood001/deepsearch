@@ -1,6 +1,9 @@
 import os
 import logging
-from typing import Dict
+import sqlite3
+import json
+from typing import Dict, Optional
+from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -8,6 +11,92 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+DB_PATH = Path("research_history.db")
+
+
+def init_db():
+    """Initialize SQLite database with research history schema."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS research_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query TEXT NOT NULL,
+            config TEXT NOT NULL,
+            result TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("Database initialized successfully")
+
+
+def save_research(query: str, config: Dict, result: Dict) -> Optional[int]:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO research_history (query, config, result)
+        VALUES (?, ?, ?)
+        """,
+        (query, json.dumps(config), json.dumps(result)),
+    )
+    research_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    logger.info(f"Research saved with ID: {research_id}")
+    return research_id
+
+
+def get_research_history(limit: int = 20) -> list:
+    """Get recent research history."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, query, created_at
+        FROM research_history
+        ORDER BY created_at DESC
+        LIMIT ?
+    """,
+        (limit,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_research_by_id(research_id: int) -> Optional[Dict]:
+    """Get research details by ID."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, query, config, result, created_at
+        FROM research_history
+        WHERE id = ?
+    """,
+        (research_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_research(research_id: int) -> bool:
+    """Delete research from history."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM research_history WHERE id = ?", (research_id,))
+    conn.commit()
+    conn.close()
+    logger.info(f"Research {research_id} deleted")
+    return True
+
 
 st.set_page_config(
     page_title="Deep Research Agent",
@@ -75,6 +164,32 @@ def sidebar_config() -> Dict:
         limit_final = st.number_input(
             "Final Report", value=2000, min_value=500, max_value=10000, step=500
         )
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📜 Research History")
+
+    history = get_research_history(limit=10)
+    if not history:
+        st.sidebar.info("No research history yet.")
+    else:
+        for item in history:
+            with st.sidebar.expander(f"🔎 {item['query'][:50]}...", expanded=False):
+                st.caption(f"📅 {item['created_at']}")
+                col1, col2 = st.sidebar.columns(2)
+                with col1:
+                    if st.button(
+                        "📖 View", key=f"view_{item['id']}", use_container_width=True
+                    ):
+                        if "selected_research_id" not in st.session_state:
+                            st.session_state.selected_research_id = None
+                        st.session_state.selected_research_id = item["id"]
+                        st.rerun()
+                with col2:
+                    if st.button(
+                        "🗑️ Delete", key=f"delete_{item['id']}", use_container_width=True
+                    ):
+                        if delete_research(item["id"]):
+                            st.rerun()
 
     return {
         "max_iterations": max_iterations,
@@ -148,12 +263,24 @@ def main():
 
     config = sidebar_config()
 
+    init_db()
+
     if "research_stage" not in st.session_state:
         st.session_state.research_stage = "idle"
     if "current_result" not in st.session_state:
         st.session_state.current_result = None
     if "last_query" not in st.session_state:
         st.session_state.last_query = ""
+    if "selected_research_id" not in st.session_state:
+        st.session_state.selected_research_id = None
+
+    if st.session_state.selected_research_id:
+        loaded_research = get_research_by_id(st.session_state.selected_research_id)
+        if loaded_research:
+            st.session_state.current_result = json.loads(loaded_research["result"])
+            st.session_state.research_stage = "viewing"
+            st.session_state.last_query = loaded_research["query"]
+            st.session_state.selected_research_id = None
 
     st.subheader("📝 Your Research Question")
 
@@ -164,7 +291,10 @@ def main():
         label_visibility="collapsed",
     )
 
-    if query != st.session_state.last_query:
+    if (
+        st.session_state.research_stage != "viewing"
+        and query != st.session_state.last_query
+    ):
         st.session_state.research_stage = "idle"
         st.session_state.current_result = None
         st.session_state.last_query = query
@@ -218,6 +348,7 @@ def main():
                     else:
                         st.session_state.research_stage = "completed"
                         status.update(label="✅ Research Completed", state="complete")
+                        save_research(query, config, result)
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
@@ -270,6 +401,16 @@ def main():
                             with st.expander("Error Details"):
                                 st.code(traceback.format_exc(), language="python")
                             logger.error(f"Research error: {e}", exc_info=True)
+
+    if st.session_state.research_stage == "viewing":
+        st.markdown("---")
+        st.info("📜 Viewing past research from history")
+        display_results(st.session_state.current_result)
+        if st.button("🔄 New Research", use_container_width=True):
+            st.session_state.research_stage = "idle"
+            st.session_state.current_result = None
+            st.session_state.last_query = ""
+            st.rerun()
 
     if st.session_state.research_stage == "completed":
         st.markdown("---")
