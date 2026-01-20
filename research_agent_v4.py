@@ -2471,6 +2471,100 @@ def run_research_agent(
     return result
 
 
+def stream_research_agent(
+    query: str,
+    max_iterations: int = 3,
+    lang: str = "en",
+    char_limits: Optional[Dict[str, int]] = None,
+    user_answers: Optional[Dict[str, str]] = None,
+    allow_console_input: bool = True,
+):
+    """Stream research agent results node by node for real-time UI updates.
+
+    Yields node updates as they complete, allowing UI to display progress in real-time.
+
+    Yields:
+        dict: Contains keys:
+            - 'node': Name of completed node
+            - 'state': Current state after node execution
+            - 'output': Output from the node
+    """
+    global llm_instances
+    if not llm_instances:
+        model_config = load_model_config()
+        llm_instances_global = create_llm_instances(model_config)
+        llm_instances.update(llm_instances_global)
+        logger.info("LLM instances initialized")
+
+    logger.info("=" * 50)
+    logger.info("RESEARCH AGENT STREAM STARTED")
+    logger.info(f"Query: {query}")
+    logger.info(f"User answers provided: {user_answers is not None}")
+    logger.info(f"Console input allowed: {allow_console_input}")
+    logger.info("=" * 50)
+
+    if char_limits is None:
+        char_limits = {"background": 300, "keyword_summary": 500, "final_report": 2000}
+
+    current_time = get_current_time()
+    logger.info(f"Current time: {current_time}")
+
+    initial_state = {
+        "query": query,
+        "original_query": query,
+        "background": "",
+        "confirmed": False,
+        "keywords": [],
+        "summaries": [],
+        "gaps_found": False,
+        "final_report": "",
+        "current_time": current_time,
+        "iteration": 0,
+        "max_iterations": max_iterations,
+        "keyword_history": [],
+        "lang": lang,
+        "llm_outputs": {},
+        "html_report": "",
+        "char_limits": char_limits,
+        "background_sources": [],
+        "keyword_search_sources": {},
+        "clarification_needed": False,
+        "user_context": "",
+        "clarification_questions": [],
+        "user_provided_context": "",
+        "user_answers": user_answers,
+        "allow_console_input": allow_console_input,
+    }
+
+    logger.debug("Initial state prepared, starting graph streaming")
+    state = initial_state.copy()
+
+    for event in graph.stream(state):
+        for node_name, node_output in event.items():
+            logger.info(f"--- Node completed: {node_name} ---")
+
+            if isinstance(node_output, dict):
+                for key, value in node_output.items():
+                    state[key] = value
+
+            yield {
+                "node": node_name,
+                "state": state,
+                "output": node_output,
+            }
+
+    logger.info("=" * 50)
+    logger.info("RESEARCH AGENT STREAM COMPLETED")
+    logger.info(f"Final report length: {len(state['final_report'])} characters")
+    logger.info("=" * 50)
+
+    yield {
+        "node": "complete",
+        "state": state,
+        "output": None,
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="deepsearch",

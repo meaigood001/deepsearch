@@ -330,25 +330,140 @@ def main():
             with st.status("🚀 Running Research...", expanded=True) as status:
                 st.write("📊 Initializing...")
                 try:
-                    from research_agent_v4 import run_research_agent
+                    from research_agent_v4 import stream_research_agent
 
-                    st.write("🔎 Analyzing query for clarification...")
-                    result = run_research_agent(
+                    status_placeholder = st.empty()
+
+                    final_result = None
+
+                    status_placeholder.write("🔎 Starting research...")
+
+                    for update in stream_research_agent(
                         query=query,
                         max_iterations=config["max_iterations"],
                         lang=config["lang"],
                         char_limits=config["char_limits"],
                         allow_console_input=False,
-                    )
+                    ):
+                        node_name = update["node"]
+                        state = update["state"]
+                        output = update["output"]
 
-                    st.session_state.current_result = result
-                    if result and result.get("clarification_needed"):
+                        if node_name == "clarify_query":
+                            status_placeholder.write(
+                                f"🔍 Analyzing query for clarification..."
+                            )
+                            if output and output.get("clarification_needed"):
+                                status_placeholder.write(
+                                    f"❓ Clarification questions generated"
+                                )
+                        elif node_name == "collect_user_response":
+                            status_placeholder.write(f"💬 Processing user responses...")
+                        elif node_name == "background_search":
+                            status_placeholder.write(
+                                f"🌐 Performing background search..."
+                            )
+                            bg_data = state.get("llm_outputs", {}).get(
+                                "background_search", {}
+                            )
+                            if bg_data:
+                                summary = bg_data.get("summary", "")
+                                sources = bg_data.get("sources", [])
+                                with st.expander(
+                                    "📊 Background Search Results", expanded=True
+                                ):
+                                    st.markdown(summary)
+                                    if sources:
+                                        st.markdown("**Sources:**")
+                                        for source in sources:
+                                            st.markdown(
+                                                f"- [{source.get('title', source['url'])}]({source['url']})"
+                                            )
+                        elif node_name == "generate_keywords":
+                            status_placeholder.write(f"🎯 Generating keywords...")
+                            kw_data = state.get("llm_outputs", {}).get(
+                                f"generate_keywords_iteration_{state['iteration'] - 1}",
+                                {},
+                            )
+                            if kw_data:
+                                keywords = kw_data.get("parsed_keywords", [])
+                                with st.expander(
+                                    f"🎯 Keywords (Iteration {state['iteration'] - 1})",
+                                    expanded=True,
+                                ):
+                                    cols = st.columns(5)
+                                    for idx, kw in enumerate(keywords):
+                                        with cols[idx % 5]:
+                                            st.markdown(
+                                                f'<span style="background: linear-gradient(90deg, #5B21B6, #7C3AED); color: white; padding: 8px 16px; border-radius: 20px; display: inline-block; margin: 4px 0;">{kw}</span>',
+                                                unsafe_allow_html=True,
+                                            )
+                        elif node_name == "multi_search":
+                            status_placeholder.write(f"🔍 Searching and summarizing...")
+                            multi_data = state.get("llm_outputs", {}).get(
+                                f"multi_search_iteration_{state['iteration'] - 1}", []
+                            )
+                            if multi_data:
+                                with st.expander(
+                                    f"📋 Search Results (Iteration {state['iteration'] - 1})",
+                                    expanded=True,
+                                ):
+                                    for item in multi_data:
+                                        keyword = item.get("keyword", "")
+                                        summary = item.get("summary", "")
+                                        with st.expander(
+                                            f"🔎 {keyword}", expanded=False
+                                        ):
+                                            st.markdown(summary)
+                        elif node_name == "check_gaps":
+                            status_placeholder.write(f"🔎 Analyzing research gaps...")
+                            gap_data = state.get("llm_outputs", {}).get(
+                                f"check_gaps_iteration_{state['iteration'] - 1}", {}
+                            )
+                            if gap_data:
+                                gaps_found = gap_data.get("gaps_found", False)
+                                raw_output = gap_data.get("raw_output", "")
+                                status_text = (
+                                    "⚠️ Gaps detected"
+                                    if gaps_found
+                                    else "✅ No gaps found"
+                                )
+                                with st.expander(
+                                    f"🔍 Gap Analysis (Iteration {state['iteration'] - 1})",
+                                    expanded=True,
+                                ):
+                                    st.markdown(f"**Status:** {status_text}")
+                                    st.markdown("**Analysis:**")
+                                    st.markdown(raw_output)
+                        elif node_name == "synthesize":
+                            status_placeholder.write(f"📝 Synthesizing final report...")
+                            syn_data = state.get("llm_outputs", {}).get(
+                                "synthesize", {}
+                            )
+                            if syn_data:
+                                report = syn_data.get("report", "")
+                                sources = syn_data.get("sources", [])
+                                with st.expander("📝 Final Report", expanded=True):
+                                    st.markdown(report)
+                                    if sources:
+                                        st.markdown("**Sources:**")
+                                        for source in sources:
+                                            st.markdown(
+                                                f"- [{source.get('title', source['url'])}]({source['url']})"
+                                            )
+                        elif node_name == "complete":
+                            status_placeholder.write("✅ Research completed!")
+                            final_result = state
+
+                    st.session_state.current_result = final_result
+                    if final_result and final_result.get("clarification_needed"):
                         st.session_state.research_stage = "clarifying"
                         status.update(label="❓ Clarification Needed", state="complete")
                     else:
                         st.session_state.research_stage = "completed"
                         status.update(label="✅ Research Completed", state="complete")
-                        save_research(query, config, result)
+                        if final_result:
+                            save_research(query, config, final_result)
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
@@ -375,18 +490,134 @@ def main():
                         "🔄 Continuing Research...", expanded=True
                     ) as status:
                         try:
-                            from research_agent_v4 import run_research_agent
+                            from research_agent_v4 import stream_research_agent
+
+                            status_placeholder = st.empty()
+                            final_result = None
 
                             st.write("Processing clarifications and searching...")
 
-                            final_result = run_research_agent(
+                            for update in stream_research_agent(
                                 query=query,
                                 max_iterations=config["max_iterations"],
                                 lang=config["lang"],
                                 char_limits=config["char_limits"],
                                 user_answers=user_answers,
                                 allow_console_input=False,
-                            )
+                            ):
+                                node_name = update["node"]
+                                state = update["state"]
+                                output = update["output"]
+
+                                if node_name == "background_search":
+                                    status_placeholder.write(
+                                        f"🌐 Performing background search..."
+                                    )
+                                    bg_data = state.get("llm_outputs", {}).get(
+                                        "background_search", {}
+                                    )
+                                    if bg_data:
+                                        summary = bg_data.get("summary", "")
+                                        sources = bg_data.get("sources", [])
+                                        with st.expander(
+                                            "📊 Background Search Results",
+                                            expanded=True,
+                                        ):
+                                            st.markdown(summary)
+                                            if sources:
+                                                st.markdown("**Sources:**")
+                                                for source in sources:
+                                                    st.markdown(
+                                                        f"- [{source.get('title', source['url'])}]({source['url']})"
+                                                    )
+                                elif node_name == "generate_keywords":
+                                    status_placeholder.write(
+                                        f"🎯 Generating keywords..."
+                                    )
+                                    kw_data = state.get("llm_outputs", {}).get(
+                                        f"generate_keywords_iteration_{state['iteration'] - 1}",
+                                        {},
+                                    )
+                                    if kw_data:
+                                        keywords = kw_data.get("parsed_keywords", [])
+                                        with st.expander(
+                                            f"🎯 Keywords (Iteration {state['iteration'] - 1})",
+                                            expanded=True,
+                                        ):
+                                            cols = st.columns(5)
+                                            for idx, kw in enumerate(keywords):
+                                                with cols[idx % 5]:
+                                                    st.markdown(
+                                                        f'<span style="background: linear-gradient(90deg, #5B21B6, #7C3AED); color: white; padding: 8px 16px; border-radius: 20px; display: inline-block; margin: 4px 0;">{kw}</span>',
+                                                        unsafe_allow_html=True,
+                                                    )
+                                elif node_name == "multi_search":
+                                    status_placeholder.write(
+                                        f"🔍 Searching and summarizing..."
+                                    )
+                                    multi_data = state.get("llm_outputs", {}).get(
+                                        f"multi_search_iteration_{state['iteration'] - 1}",
+                                        [],
+                                    )
+                                    if multi_data:
+                                        with st.expander(
+                                            f"📋 Search Results (Iteration {state['iteration'] - 1})",
+                                            expanded=True,
+                                        ):
+                                            for item in multi_data:
+                                                keyword = item.get("keyword", "")
+                                                summary = item.get("summary", "")
+                                                with st.expander(
+                                                    f"🔎 {keyword}", expanded=False
+                                                ):
+                                                    st.markdown(summary)
+                                elif node_name == "check_gaps":
+                                    status_placeholder.write(
+                                        f"🔎 Analyzing research gaps..."
+                                    )
+                                    gap_data = state.get("llm_outputs", {}).get(
+                                        f"check_gaps_iteration_{state['iteration'] - 1}",
+                                        {},
+                                    )
+                                    if gap_data:
+                                        gaps_found = gap_data.get("gaps_found", False)
+                                        raw_output = gap_data.get("raw_output", "")
+                                        status_text = (
+                                            "⚠️ Gaps detected"
+                                            if gaps_found
+                                            else "✅ No gaps found"
+                                        )
+                                        with st.expander(
+                                            f"🔍 Gap Analysis (Iteration {state['iteration'] - 1})",
+                                            expanded=True,
+                                        ):
+                                            st.markdown(f"**Status:** {status_text}")
+                                            st.markdown("**Analysis:**")
+                                            st.markdown(raw_output)
+                                elif node_name == "synthesize":
+                                    status_placeholder.write(
+                                        f"📝 Synthesizing final report..."
+                                    )
+                                    syn_data = state.get("llm_outputs", {}).get(
+                                        "synthesize", {}
+                                    )
+                                    if syn_data:
+                                        report = syn_data.get("report", "")
+                                        sources = syn_data.get("sources", [])
+                                        with st.expander(
+                                            "📝 Final Report", expanded=True
+                                        ):
+                                            st.markdown(report)
+                                            if sources:
+                                                st.markdown("**Sources:**")
+                                                for source in sources:
+                                                    st.markdown(
+                                                        f"- [{source.get('title', source['url'])}]({source['url']})"
+                                                    )
+                                elif node_name == "complete":
+                                    status_placeholder.write("✅ Research completed!")
+                                    final_result = state
+
                             st.session_state.current_result = final_result
                             st.session_state.research_stage = "completed"
                             status.update(
