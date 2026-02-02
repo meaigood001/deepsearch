@@ -14,7 +14,12 @@ const ICONS = {
     check: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
     alertTriangle: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" x2="12" y1="9" y2="13"></line><line x1="12" x2="12.01" y1="17" y2="17"></line></svg>',
     download: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>',
-    link: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>'
+    link: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
+    user: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
+    chevronDown: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>',
+    logout: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>',
+    signIn: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>',
+    signUp: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>'
 };
 
 // State Management
@@ -31,7 +36,8 @@ const state = {
             keyword_summary: 500,
             final_report: 2000
         }
-    }
+    },
+    currentUser: null
 };
 
 // DOM Elements
@@ -55,11 +61,39 @@ const elements = {
     language: document.getElementById('language'),
     limitBackground: document.getElementById('limitBackground'),
     limitKeyword: document.getElementById('limitKeyword'),
-    limitFinal: document.getElementById('limitFinal')
+    limitFinal: document.getElementById('limitFinal'),
+    // Auth elements
+    authModal: document.getElementById('authModal'),
+    authModalOverlay: document.getElementById('authModalOverlay'),
+    authModalClose: document.getElementById('authModalClose'),
+    loginForm: document.getElementById('loginForm'),
+    registerForm: document.getElementById('registerForm'),
+    loginFormSubmit: document.getElementById('loginFormSubmit'),
+    registerFormSubmit: document.getElementById('registerFormSubmit'),
+    loginUsername: document.getElementById('loginUsername'),
+    loginPassword: document.getElementById('loginPassword'),
+    registerUsername: document.getElementById('registerUsername'),
+    registerEmail: document.getElementById('registerEmail'),
+    registerPassword: document.getElementById('registerPassword'),
+    loginError: document.getElementById('loginError'),
+    registerError: document.getElementById('registerError'),
+    showRegister: document.getElementById('showRegister'),
+    showLogin: document.getElementById('showLogin'),
+    userMenu: document.getElementById('userMenu'),
+    userMenuTrigger: document.getElementById('userMenuTrigger'),
+    userMenuDropdown: document.getElementById('userMenuDropdown'),
+    userMenuName: document.getElementById('userMenuName'),
+    userDropdownName: document.getElementById('userDropdownName'),
+    userDropdownEmail: document.getElementById('userDropdownEmail'),
+    logoutBtn: document.getElementById('logoutBtn')
 };
+
 
 // Initialize Application
 async function init() {
+    // Initially disable protected features until auth status is confirmed
+    disableProtectedFeatures();
+    
     // Configure marked.js for markdown rendering
     marked.setOptions({
         highlight: function(code, lang) {
@@ -79,16 +113,224 @@ async function init() {
     });
     
     await checkHealth();
-    await loadHistory();
+    await checkAuthStatus();
     setupEventListeners();
     updateConfigFromInputs();
 }
 
-// Render Markdown Safely
-function renderMarkdown(text) {
-    if (!text) return '';
-    const rawHtml = marked.parse(text);
-    return DOMPurify.sanitize(rawHtml);
+// Check authentication status
+async function checkAuthStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/me`);
+        
+        if (response.status === 401) {
+            // Explicitly unauthorized
+            state.currentUser = null;
+            showAuthModal(true); // Force modal to stay open
+            disableProtectedFeatures();
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            state.currentUser = data.user;
+            showUserMenu(data.user);
+            enableProtectedFeatures();
+            await loadHistory(); // Load user-specific history
+        } else {
+            state.currentUser = null;
+            showAuthModal(true); // Force modal to stay open
+            disableProtectedFeatures();
+        }
+    } catch (error) {
+        console.error('Auth status check failed:', error);
+        state.currentUser = null;
+        showAuthModal(true); // Force modal to stay open
+        disableProtectedFeatures();
+    }
+}
+
+// Disable protected features when not authenticated
+function disableProtectedFeatures() {
+    elements.startResearch.disabled = true;
+    elements.startResearch.style.opacity = '0.5';
+    elements.startResearch.style.cursor = 'not-allowed';
+    elements.queryInput.disabled = true;
+    elements.queryInput.placeholder = 'Please sign in to start research...';
+    elements.queryInput.style.backgroundColor = 'var(--bg-base)';
+    elements.historyList.innerHTML = '<div class="info-box">Please sign in to view your research history.</div>';
+}
+
+// Enable protected features when authenticated
+function enableProtectedFeatures() {
+    elements.startResearch.disabled = false;
+    elements.startResearch.style.opacity = '1';
+    elements.startResearch.style.cursor = 'pointer';
+    elements.queryInput.disabled = false;
+    elements.queryInput.placeholder = 'e.g., What are the latest developments in AI safety?';
+    elements.queryInput.style.backgroundColor = '';
+}
+
+// Show authentication modal and prevent access to main UI
+function showAuthModal(force = false) {
+    elements.authModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; // Prevent scrolling when modal is open
+    
+    // Disable main content when auth modal is shown
+    const mainContent = document.querySelector('.main-content');
+    if (mainContent) {
+        mainContent.style.pointerEvents = 'none';
+        mainContent.style.opacity = '0.3';
+    }
+    
+    // Hide close button to force login when not authenticated
+    if (elements.authModalClose) {
+        if (force || !state.currentUser) {
+            elements.authModalClose.style.display = 'none';
+        } else {
+            elements.authModalClose.style.display = 'block';
+        }
+    }
+}
+
+// Hide authentication modal and restore access to main UI
+function hideAuthModal() {
+    elements.authModal.style.display = 'none';
+    document.body.style.overflow = ''; // Restore scrolling
+    
+    // Re-enable main content
+    const mainContent = document.querySelector('.main-content');
+    if (mainContent) {
+        mainContent.style.pointerEvents = 'auto';
+        mainContent.style.opacity = '1';
+    }
+    
+    // Show close button again
+    if (elements.authModalClose) {
+        elements.authModalClose.style.display = 'block';
+    }
+    
+    // Clear forms
+    if (elements.loginFormSubmit) elements.loginFormSubmit.reset();
+    if (elements.registerFormSubmit) elements.registerFormSubmit.reset();
+    if (elements.loginError) elements.loginError.textContent = '';
+    if (elements.registerError) elements.registerError.textContent = '';
+}
+
+// Show login form
+function showLoginForm() {
+    elements.loginForm.style.display = 'block';
+    elements.registerForm.style.display = 'none';
+    elements.loginError.textContent = '';
+    elements.registerError.textContent = '';
+}
+
+// Show register form
+function showRegisterForm() {
+    elements.registerForm.style.display = 'block';
+    elements.loginForm.style.display = 'none';
+    elements.loginError.textContent = '';
+    elements.registerError.textContent = '';
+}
+
+// Show user menu
+function showUserMenu(user) {
+    elements.userMenu.style.display = 'flex';
+    elements.userMenuName.textContent = user.username;
+    elements.userDropdownName.textContent = user.username;
+    elements.userDropdownEmail.textContent = user.email;
+}
+
+// Hide user menu
+function hideUserMenu() {
+    elements.userMenu.style.display = 'none';
+    elements.userMenuName.textContent = '';
+    elements.userDropdownName.textContent = '';
+    elements.userDropdownEmail.textContent = '';
+}
+
+// Login function
+async function login(username, password) {
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            state.currentUser = data.user;
+            showUserMenu(data.user);
+            hideAuthModal(); // Hide modal on successful login
+            enableProtectedFeatures();
+            await loadHistory(); // Reload history for logged-in user
+            showToast('Login successful!', 'success');
+            return true;
+        } else {
+            elements.loginError.textContent = data.error || 'Login failed';
+            return false;
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        elements.loginError.textContent = 'Network error occurred';
+        return false;
+    }
+}
+
+// Register function
+async function register(username, email, password) {
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/register`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            state.currentUser = data.user;
+            showUserMenu(data.user);
+            hideAuthModal(); // Hide modal on successful registration
+            enableProtectedFeatures();
+            await loadHistory(); // Load history for new user
+            showToast('Registration successful!', 'success');
+            return true;
+        } else {
+            elements.registerError.textContent = data.error || 'Registration failed';
+            return false;
+        }
+    } catch (error) {
+        console.error('Registration error:', error);
+        elements.registerError.textContent = 'Network error occurred';
+        return false;
+    }
+}
+
+// Logout function
+async function logout() {
+    try {
+        await fetch(`${API_BASE}/api/auth/logout`, {
+            method: 'POST'
+        });
+        
+        state.currentUser = null;
+        hideUserMenu();
+        disableProtectedFeatures();
+        showAuthModal(true); // Show auth modal after logout and force it to stay open
+        elements.resultsDisplay.innerHTML = '';
+        showToast('Logged out successfully', 'info');
+    } catch (error) {
+        console.error('Logout error:', error);
+        showToast('Logout failed', 'error');
+    }
 }
 
 // Health Check
@@ -122,8 +364,19 @@ async function checkHealth() {
 
 // Load Research History
 async function loadHistory() {
+    if (!state.currentUser) {
+        elements.historyList.innerHTML = '<div class="info-box">Please sign in to view your research history.</div>';
+        return;
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/api/history`);
+        if (response.status === 401) {
+            showToast('Session expired. Please sign in again.', 'error');
+            logout();
+            return;
+        }
+        
         const data = await response.json();
         
         if (data.success && data.data.length > 0) {
@@ -133,7 +386,12 @@ async function loadHistory() {
         }
     } catch (error) {
         console.error('Failed to load history:', error);
-        elements.historyList.innerHTML = '<div class="info-box">Failed to load history.</div>';
+        if (error.message && error.message.includes('401')) {
+            showToast('Session expired. Please sign in again.', 'error');
+            logout();
+        } else {
+            elements.historyList.innerHTML = '<div class="info-box">Failed to load history.</div>';
+        }
     }
 }
 
@@ -180,8 +438,20 @@ function renderHistory(history) {
 
 // View Research
 async function viewResearch(id) {
+    if (!state.currentUser) {
+        showToast('Please sign in to view research.', 'error');
+        showAuthModal(true); // Force modal to stay open
+        return;
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/api/research/${id}`);
+        if (response.status === 401) {
+            showToast('Session expired. Please sign in again.', 'error');
+            logout();
+            return;
+        }
+        
         const data = await response.json();
         
         if (data.success) {
@@ -189,35 +459,68 @@ async function viewResearch(id) {
             state.currentResearch = data.data;
             displayResults(data.data.result);
             showToast('Research loaded from history', 'success');
+        } else {
+            showToast(data.error || 'Failed to load research', 'error');
         }
     } catch (error) {
         console.error('Failed to view research:', error);
-        showToast('Failed to load research', 'error');
+        if (error.message && error.message.includes('401')) {
+            showToast('Session expired. Please sign in again.', 'error');
+            logout();
+        } else {
+            showToast('Failed to load research', 'error');
+        }
     }
 }
 
 // Delete Research
 async function deleteResearch(id) {
+    if (!state.currentUser) {
+        showToast('Please sign in to delete research.', 'error');
+        showAuthModal(true); // Force modal to stay open
+        return;
+    }
+    
     if (!confirm('Are you sure you want to delete this research?')) return;
     
     try {
         const response = await fetch(`${API_BASE}/api/research/${id}`, {
             method: 'DELETE'
         });
+        
+        if (response.status === 401) {
+            showToast('Session expired. Please sign in again.', 'error');
+            logout();
+            return;
+        }
+        
         const data = await response.json();
         
         if (data.success) {
             await loadHistory();
             showToast('Research deleted successfully', 'success');
+        } else {
+            showToast(data.error || 'Failed to delete research', 'error');
         }
     } catch (error) {
         console.error('Failed to delete research:', error);
-        showToast('Failed to delete research', 'error');
+        if (error.message && error.message.includes('401')) {
+            showToast('Session expired. Please sign in again.', 'error');
+            logout();
+        } else {
+            showToast('Failed to delete research', 'error');
+        }
     }
 }
 
 // Start Research
 async function startResearch(userAnswers = null) {
+    if (!state.currentUser) {
+        showToast('Please sign in to start research.', 'error');
+        showAuthModal(true); // Force modal to stay open
+        return;
+    }
+    
     const query = elements.queryInput.value.trim();
     
     if (!query) {
@@ -247,6 +550,11 @@ async function startResearch(userAnswers = null) {
         });
         
         if (!response.ok) {
+            if (response.status === 401) {
+                showToast('Session expired. Please sign in again.', 'error');
+                logout();
+                return;
+            }
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
@@ -277,7 +585,12 @@ async function startResearch(userAnswers = null) {
         
     } catch (error) {
         console.error('Research error:', error);
-        showToast(`Research failed: ${error.message}`, 'error');
+        if (error.message.includes('401')) {
+            showToast('Session expired. Please sign in again.', 'error');
+            logout();
+        } else {
+            showToast(`Research failed: ${error.message}`, 'error');
+        }
         resetResearch();
     }
 }
@@ -621,6 +934,13 @@ function updateConfigFromInputs() {
     };
 }
 
+// Render Markdown Safely
+function renderMarkdown(text) {
+    if (!text) return '';
+    const rawHtml = marked.parse(text);
+    return DOMPurify.sanitize(rawHtml);
+}
+
 // Setup Event Listeners
 function setupEventListeners() {
     // Start Research Button
@@ -661,6 +981,58 @@ function setupEventListeners() {
         const mainContent = document.querySelector('.main-content');
         sidebar.classList.toggle('collapsed');
         mainContent.classList.toggle('sidebar-collapsed');
+    });
+    
+    // Authentication Modal Event Listeners
+    elements.authModalOverlay.addEventListener('click', (e) => {
+        // Don't close modal when not authenticated
+        if (!state.currentUser) {
+            showToast('Please sign in to continue.', 'info');
+            return;
+        }
+        hideAuthModal();
+    });
+    
+    // Only allow closing the modal if the user is authenticated
+    elements.authModalClose.addEventListener('click', () => {
+        if (state.currentUser) {
+            hideAuthModal();
+        } else {
+            // Don't close the modal if not authenticated
+            showToast('Please sign in to continue.', 'info');
+        }
+    });
+    
+    elements.showRegister.addEventListener('click', showRegisterForm);
+    elements.showLogin.addEventListener('click', showLoginForm);
+    
+    elements.loginFormSubmit.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = elements.loginUsername.value;
+        const password = elements.loginPassword.value;
+        await login(username, password);
+    });
+    
+    elements.registerFormSubmit.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = elements.registerUsername.value;
+        const email = elements.registerEmail.value;
+        const password = elements.registerPassword.value;
+        await register(username, email, password);
+    });
+    
+    // User Menu Event Listeners
+    elements.userMenuTrigger.addEventListener('click', () => {
+        elements.userMenuDropdown.classList.toggle('show');
+    });
+    
+    elements.logoutBtn.addEventListener('click', logout);
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!elements.userMenu.contains(e.target)) {
+            elements.userMenuDropdown.classList.remove('show');
+        }
     });
 }
 
