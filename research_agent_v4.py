@@ -238,6 +238,7 @@ class ResearchState(TypedDict):
     keywords: list
     summaries: Annotated[list, operator.add]
     gaps_found: bool
+    gap_details: str  # Detailed description of identified gaps
     final_report: str
     current_time: str
     iteration: int
@@ -416,6 +417,7 @@ def generate_keywords_node(state: ResearchState):
     iteration = state["iteration"]
     keyword_history = state["keyword_history"]
     max_iterations = state["max_iterations"]
+    gap_details = state.get("gap_details", "")
 
     logger.info(
         f"Generating keywords for query: {query} (Iteration {iteration}/{max_iterations})"
@@ -423,6 +425,8 @@ def generate_keywords_node(state: ResearchState):
     logger.debug(f"Original query: {original_query}")
     logger.debug(f"Background context length: {len(str(background))} characters")
     logger.debug(f"Keyword history: {keyword_history}")
+    if gap_details:
+        logger.info(f"Previous gap analysis identified gaps: {gap_details[:150]}...")
 
     time_instruction = get_time_awareness_instruction(
         state["current_time"], state["lang"]
@@ -430,8 +434,32 @@ def generate_keywords_node(state: ResearchState):
 
     lang = state["lang"]
 
+    # Build gap-focused instruction if we have gap details from previous iteration
+    gap_instruction = ""
+    if gap_details and iteration > 1:
+        # Escape curly braces in gap_details to prevent LangChain template variable interpretation
+        escaped_gap_details = gap_details.replace("{", "{{").replace("}", "}}")
+        gap_instruction_en = f"""
+
+🔍 GAP ANALYSIS FROM PREVIOUS ITERATION:
+The previous research identified the following gaps that need to be filled:
+{escaped_gap_details}
+
+⚠️ CRITICAL: Generate keywords SPECIFICALLY to address these gaps. Your keywords should target the missing information described above."""
+        gap_instruction_zh = f"""
+
+🔍 前一次迭代的缺口分析：
+前一次研究识别出以下需要填补的缺口：
+{escaped_gap_details}
+
+⚠️ 关键：生成专门针对这些缺口的关键词。你的关键词应该针对上述描述的缺失信息。"""
+        gap_instruction = gap_instruction_en if lang == "en" else gap_instruction_zh
+
     base_instruction = (
-        time_instruction + "\n🎯 USER'S ORIGINAL REQUEST: " + original_query
+        time_instruction
+        + "\n🎯 USER'S ORIGINAL REQUEST: "
+        + original_query
+        + gap_instruction
     )
     keyword_generation_instructions = {
         "en": base_instruction
@@ -450,21 +478,23 @@ def generate_keywords_node(state: ResearchState):
     - Include Chinese keywords if relevant to the query
     - Include other language keywords if helpful for comprehensive research
 5. Keywords should be context-aware and specific to user's actual needs
-6. Avoid generic/broad terms; focus on specific, relevant terms
+6. Avoid generic/broad terms; focus on specific, relevant terms"""
+        + (
+            "\n7. PRIORITY: Focus on keywords that will fill the identified gaps mentioned above."
+            if gap_details and iteration > 1
+            else ""
+        )
+        + """
 
 OUTPUT FORMAT (JSON only):
-{{
-    "keywords": [
-        "keyword1_en",
-        "keyword2_zh",
-        "keyword3_en",
-        ...
-    ]
-}}
+Return a JSON object with a "keywords" key containing an array of 3-5 keyword strings. Do not use markdown code blocks, explanations, or numbered lists.
+
+Example format:
+["keyword1_en", "keyword2_zh", "keyword3_en"]
 
 Examples:
 - Query: "AI safety" → ["AI safety research", "人工智能安全", "AI alignment"]
-- Query: "机器学习应用" → ["machine learning applications", "机器学习应用", "machine learning use cases"]
+- Query: "machine learning applications" → ["machine learning applications", "机器学习应用", "machine learning use cases"]
 - Query: "blockchain technology" → ["blockchain technology", "区块链技术", "distributed ledger technology"]
 
 Do NOT include markdown code blocks, explanations, or numbered lists.
@@ -485,24 +515,24 @@ Do NOT include markdown code blocks, explanations, or numbered lists.
     - 包含中文关键词（如果与查询相关）
     - 包含其他语言关键词（如果有助于全面研究）
 5. 关键词应该对应用户实际需求的上下文相关
-6. 避免通用/广泛的术语；专注于具体、相关的词汇
+6. 避免通用/广泛的术语；专注于具体、相关的词汇"""
+        + (
+            "\n7. 优先级：专注于能够填补上述识别出的缺口的关键词。"
+            if gap_details and iteration > 1
+            else ""
+        )
+        + """
 
-输出格式（仅JSON）:
-{{
-    "keywords": [
-        "keyword1_en",
-        "keyword2_zh",
-        "keyword3_en",
-        ...
-    ]
-}}
+输出格式（仅JSON）：
+返回JSON对象，必须包含一个"keywords"键，其值是一个包含3-5个关键词的字符串数组。不要使用markdown代码块、解释或编号列表。
+
+示例格式：
+["keyword1_en", "keyword2_zh", "keyword3_en"]
 
 示例:
 - 查询: "AI安全" → ["AI safety research", "人工智能安全", "AI alignment"]
 - 查询: "machine learning applications" → ["machine learning applications", "机器学习应用", "machine learning use cases"]
 - 查询: "区块链技术" → ["blockchain technology", "区块链技术", "distributed ledger technology"]
-
-不要包含markdown代码块、解释或编号列表。
 """,
     }
 
@@ -711,29 +741,113 @@ def check_gaps_node(state: ResearchState):
     summaries = state["summaries"]
     query = state["query"]
     original_query = state["original_query"]
+    lang = state["lang"]
 
     logger.info(f"Checking gaps for {len(summaries)} summaries against query: {query}")
     logger.debug(f"Original query context: {original_query}")
 
-    prompt = ChatPromptTemplate.from_template(
-        f"{get_time_awareness_instruction(state['current_time'], state['lang'])}\n🎯 USER'S ORIGINAL REQUEST: {original_query}\n💡 IMPORTANT: Reflect on whether the current paragraphs sufficiently address the user's original research question. Identify deficiencies, especially in answering the query.\nReview these summaries: {{summaries}}\nAgainst the query: {{query}}\nAre there gaps? Answer 'yes' or 'no'."
-    )
+    time_instruction = get_time_awareness_instruction(state["current_time"], lang)
+
+    gap_analysis_instructions = {
+        "en": f"""{time_instruction}
+🎯 USER'S ORIGINAL REQUEST: {original_query}
+
+💡 CRITICAL: Analyze whether the current research summaries sufficiently address the user's original question. Identify specific deficiencies and gaps in the research.
+
+Review these summaries:
+{{summaries}}
+
+TASK:
+1. Determine if there are gaps in the research (yes/no)
+2. If gaps exist, identify SPECIFICALLY what information is missing
+3. Describe what additional research would be needed to fill these gaps
+
+OUTPUT FORMAT (JSON only):
+{{{{"gaps_found": true/false, "gap_details": "Detailed description of what gaps were identified and what specific information is missing. If no gaps, leave empty."}}}}
+
+Examples of gap analysis:
+- Query: "AI safety developments 2024" 
+  → Gap: "Missing specific 2024 regulatory updates and recent safety incidents"
+- Query: "Machine learning in healthcare"
+  → Gap: "No information about clinical trial results or FDA approvals"
+- Query: "Climate change policy"
+  → Gap: "Lacks comparison between EU and US policy approaches"
+
+Respond with JSON only, no markdown code blocks.""",
+        "zh": f"""{time_instruction}
+🎯 用户原始请求: {original_query}
+
+💡 关键：分析当前研究摘要是否充分回答了用户的原始问题。识别研究中存在的具体缺陷和缺口。
+
+查看这些摘要：
+{{summaries}}
+
+任务：
+1. 确定研究中是否存在缺口（是/否）
+2. 如果存在缺口，具体指出缺少哪些信息
+3. 描述需要哪些额外研究来填补这些缺口
+
+输出格式（仅JSON）：
+{{{{"gaps_found": true/false, "gap_details": "对识别出的缺口和缺少的具体信息的详细描述。如果没有缺口，留空。"}}}}
+
+缺口分析示例：
+- 查询: "2024年AI安全发展"
+  → 缺口: "缺少2024年具体监管更新和近期安全事件的信息"
+- 查询: "医疗保健中的机器学习"
+  → 缺口: "没有关于临床试验结果或FDA批准的信息"
+- 查询: "气候变化政策"
+  → 缺口: "缺乏欧盟和美国政策方法的比较"
+
+仅返回JSON，不要markdown代码块。""",
+    }
+
+    prompt = ChatPromptTemplate.from_template(gap_analysis_instructions[lang])
     chain = prompt | llm_instances["check_gaps"] | StrOutputParser()
 
     logger.debug("Invoking LLM to check for gaps")
-    gaps = chain.invoke({"summaries": "\n".join(summaries), "query": query})
-    logger.debug(f"Gap analysis result: {gaps}")
+    llm_output = chain.invoke({"summaries": "\n".join(summaries), "query": query})
+    logger.debug(f"Gap analysis raw output: {llm_output}")
 
-    gaps_found = "yes" in gaps.lower()
+    gaps_found = False
+    gap_details = ""
+
+    try:
+        json_match = re.search(r"\{{[\s\S]*?\}}", llm_output)
+        if json_match:
+            json_str = json_match.group(0)
+            logger.debug(f"Extracted JSON: {json_str}")
+            parsed = json.loads(json_str)
+            gaps_found = parsed.get("gaps_found", False)
+            gap_details = parsed.get("gap_details", "")
+        else:
+            gaps_found = "yes" in llm_output.lower() or "true" in llm_output.lower()
+            gap_details = llm_output if gaps_found else ""
+            logger.warning("No JSON found in gap analysis, using fallback parsing")
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON decode error in gap analysis: {e}, using fallback")
+        gaps_found = "yes" in llm_output.lower() or "true" in llm_output.lower()
+        gap_details = llm_output if gaps_found else ""
+    except Exception as e:
+        logger.warning(f"Error parsing gap analysis: {e}")
+        gaps_found = "yes" in llm_output.lower() or "true" in llm_output.lower()
+        gap_details = llm_output if gaps_found else ""
+
     logger.info(f"Gap analysis complete. Gaps found: {gaps_found}")
+    if gap_details:
+        logger.info(f"Gap details: {gap_details[:200]}...")
 
     llm_outputs = state.get("llm_outputs", {})
     llm_outputs[f"check_gaps_iteration_{state['iteration'] - 1}"] = {
-        "raw_output": gaps,
+        "raw_output": llm_output,
         "gaps_found": gaps_found,
+        "gap_details": gap_details,
     }
 
-    return {"gaps_found": gaps_found, "llm_outputs": llm_outputs}
+    return {
+        "gaps_found": gaps_found,
+        "gap_details": gap_details,
+        "llm_outputs": llm_outputs,
+    }
 
 
 def clarify_query_node(state: ResearchState):
@@ -768,11 +882,7 @@ CLARIFICATION CRITERIA:
 - Does NOT need clarification if query is specific and well-defined
 
 OUTPUT FORMAT (JSON only):
-{{
-    "clarification_needed": true/false,
-    "reasoning": "Brief explanation of why clarification is/isn't needed",
-    "questions": ["question1", "question2", ...] or []
-}}
+Return a JSON object with keys: clarification_needed (boolean), reasoning (string), questions (array).
 
 Examples where clarification is NEEDED:
 - "Machine learning" → Too broad, needs context on specific area/application
@@ -783,39 +893,6 @@ Examples where clarification is NOT needed:
 - "Impact of GPT-4 on software development"
 - "Quantum computing applications in healthcare 2024"
 - "Comparison of Python vs JavaScript for web development in 2025"
-""",
-        "zh": time_instruction
-        + """🎯 用户查询: {original_query}
-
-分析用户查询，确定是否需要澄清。
-
-你的任务:
-1. 评估查询是否足够清晰以进行有效研究
-2. 识别缺失的上下文、背景信息或歧义
-3. 生成能够提高研究质量的具体澄清问题
-
-澄清标准:
-- 如果查询模糊、不明确或缺乏特定上下文，则需要澄清
-- 如果主题广泛且可以有多种解释，则需要澄清
-- 如果时间/范围/地理/上下文不清楚，则需要澄清
-- 如果查询具体且定义明确，则不需要澄清
-
-输出格式（仅JSON）:
-{{
-    "clarification_needed": true/false,
-    "reasoning": "简要说明为什么需要/不需要澄清",
-    "questions": ["问题1", "问题2", ...] or []
-}}
-
-需要澄清的示例:
-- "机器学习" → 太广泛，需要具体领域/应用上下文
-- "气候变化" → 可能指科学、政策、影响等
-- "AI的最新发展" → 具体哪个方面？"最新"是指什么时候？
-
-不需要澄清的示例:
-- "GPT-4对软件开发的影响"
-- "2024年量子计算在医疗保健中的应用"
-- "2025年Python与JavaScript在网络开发方面的比较"
 """,
     }
 
@@ -928,49 +1005,6 @@ def collect_user_response_node(state: ResearchState):
     for idx, question in enumerate(questions, 1):
         print(f"{idx}. {question}")
         answer = input("   Your answer (press Enter to skip): ").strip()
-        if answer:
-            user_answers.append(f"Q{idx}. {question}\nA{idx}. {answer}")
-
-    print("\n" + "=" * 60)
-    print("Proceeding with research...")
-    print("=" * 60 + "\n")
-
-    if user_answers:
-        user_provided_context = "\n\n".join(user_answers)
-        logger.info(f"Collected {len(user_answers)} clarification answers")
-
-        clarifications_text = " ".join(
-            [f"({ans.split('A')[1].strip()})" for ans in user_answers]
-        )
-        enhanced_query = f"{original_query} {clarifications_text}"
-        logger.info(f"Enhanced query: {enhanced_query}")
-
-        llm_outputs = state.get("llm_outputs", {})
-        llm_outputs["collect_user_response"] = {
-            "answers": user_answers,
-            "enhanced_query": enhanced_query,
-        }
-
-        return {
-            "user_provided_context": user_provided_context,
-            "query": enhanced_query,
-            "llm_outputs": llm_outputs,
-        }
-    else:
-        logger.info("No answers provided by user. Proceeding with original query.")
-        return {"user_provided_context": ""}
-
-    logger.info("Waiting for user to provide clarification answers...")
-
-    print("\n" + "=" * 60)
-    print("CLARIFICATION NEEDED")
-    print("=" * 60)
-    print("\nTo conduct more accurate and targeted research, please clarify:\n")
-
-    user_answers = []
-    for idx, question in enumerate(questions, 1):
-        print(f"{idx}. {question}")
-        answer = input(f"   Your answer (press Enter to skip): ").strip()
         if answer:
             user_answers.append(f"Q{idx}. {question}\nA{idx}. {answer}")
 
@@ -2441,6 +2475,7 @@ def run_research_agent(
         "keywords": [],
         "summaries": [],
         "gaps_found": False,
+        "gap_details": "",
         "final_report": "",
         "current_time": current_time,
         "iteration": 0,
@@ -2517,6 +2552,7 @@ def stream_research_agent(
         "keywords": [],
         "summaries": [],
         "gaps_found": False,
+        "gap_details": "",
         "final_report": "",
         "current_time": current_time,
         "iteration": 0,
